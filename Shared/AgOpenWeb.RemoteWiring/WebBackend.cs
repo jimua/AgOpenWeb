@@ -41,7 +41,13 @@ public sealed class WebBackend
     /// The provider must already be built and have its cross-service refs wired
     /// (see <see cref="WireCrossServices"/>, called here). Returns once the server is bound.
     /// </summary>
-    public static async Task<WebBackend> StartAsync(IServiceProvider sp, IBoundaryImageryCapture imageryCapture)
+    /// <param name="port">TCP port for the embedded host (AgOpenWeb default 5174; SeederTerminal 5175).</param>
+    /// <param name="uiContentRoot">Optional SPA filesystem root (Vite dist). Null = embedded AgOpenWeb wwwroot.</param>
+    public static async Task<WebBackend> StartAsync(
+        IServiceProvider sp,
+        IBoundaryImageryCapture imageryCapture,
+        int port = 5174,
+        string? uiContentRoot = null)
     {
         // Persisted settings → ConfigurationStore, then app config + persistent state.
         sp.GetRequiredService<ISettingsService>().Load();
@@ -72,7 +78,9 @@ public sealed class WebBackend
             sp.GetRequiredService<IFieldService>(),
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IVehicleProfileService>(),
-            sp.GetRequiredService<IPersistentStateService>()).ConfigureAwait(false);
+            sp.GetRequiredService<IPersistentStateService>(),
+            port,
+            uiContentRoot).ConfigureAwait(false);
 
         // Wire on the host loop so the command handler runs serialized with the render-pull /
         // status timers, exactly as the Avalonia UI thread did in the old windowed build.

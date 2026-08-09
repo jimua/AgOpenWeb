@@ -1,0 +1,23 @@
+{
+  "app.title": "Термінал сівалки",
+  "speed": "Швидкість",
+  "seedRate": "Норма висіву",
+  "singulation": "Сінгуляція",
+  "driving": "Керування",
+  "master": "Майстер",
+  "auto": "Авто",
+  "manual": "Ручний",
+  "contour": "Контур",
+  "section": "Сек",
+  "connected": "Підключено",
+  "disconnected": "Відключено",
+  "connecting": "Підключення…",
+  "zoomIn": "Збільшити",
+  "zoomOut": "Зменшити",
+  "camera": "Камера",
+  "language": "Мова",
+  "kph": "км/год",
+  "mph": "миль/год",
+  "setpoint": "Зад",
+  "actual": "Факт"
+}

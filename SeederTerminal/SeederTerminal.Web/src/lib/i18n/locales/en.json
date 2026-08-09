@@ -1,0 +1,23 @@
+{
+  "app.title": "Seeder Terminal",
+  "speed": "Speed",
+  "seedRate": "Seed rate",
+  "singulation": "Singulation",
+  "driving": "Driving",
+  "master": "Master",
+  "auto": "Auto",
+  "manual": "Manual",
+  "contour": "Contour",
+  "section": "Sec",
+  "connected": "Connected",
+  "disconnected": "Disconnected",
+  "connecting": "Connecting…",
+  "zoomIn": "Zoom in",
+  "zoomOut": "Zoom out",
+  "camera": "Camera",
+  "language": "Language",
+  "kph": "km/h",
+  "mph": "mph",
+  "setpoint": "Set",
+  "actual": "Act"
+}

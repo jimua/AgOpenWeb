@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Full Avalonia Android APK head lands next (mirrors AgOpenWeb.Android BackendService +
+    NativeWebView). This library holds the Seeder Android host contract so Desktop/Web can
+    ship first without requiring the Android workload on every developer machine.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>SeederTerminal.Android</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SeederTerminal.Core\SeederTerminal.Core.csproj" />
+  </ItemGroup>
+</Project>

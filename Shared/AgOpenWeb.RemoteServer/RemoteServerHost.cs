@@ -149,13 +149,18 @@ public sealed class RemoteServerHost
 
     /// <param name="state">The live DI ApplicationState the app/pipeline updates.</param>
     /// <param name="port">Bound on 0.0.0.0 so LAN clients (tablets) can connect.</param>
+    /// <param name="uiContentRoot">Optional filesystem root for a product SPA (e.g. SeederTerminal
+    /// Vite <c>dist/</c>). When set, <c>/</c> and relative assets are served from disk instead of
+    /// the embedded AgOpenWeb reference wwwroot. Wire routes (<c>/ws</c>, <c>/vendor</c>,
+    /// <c>/backpic</c>, <c>/sattile</c>) stay the same.</param>
     public async Task StartAsync(ApplicationState state, ICoverageMapService coverage,
         ISectionControlService sections, IToolPositionService tool,
         AgOpenWeb.Models.Configuration.ConfigurationStore config,
         IJobService jobs, IConfigurationService configService, IAutoSteerService autoSteer,
         ISmartWasCalibrationService smartWas, IUdpCommunicationService udp,
         INtripProfileService ntripProfiles, IFieldService fields, ISettingsService settings,
-        IVehicleProfileService vehicleProfiles, IPersistentStateService persist, int port = 5174)
+        IVehicleProfileService vehicleProfiles, IPersistentStateService persist, int port = 5174,
+        string? uiContentRoot = null)
     {
         Port = port;
 
@@ -201,16 +206,52 @@ public sealed class RemoteServerHost
         // stale copy in the WebView's HTTP cache silently runs old code after an app update.
         // Force a fresh fetch every load.
         var noStore = new[] { ("Cache-Control", "no-store") };
-        server.MapGet("/", () => SimpleWebServer.Response.Text(ReadAsset("index.html"), "text/html", noStore));
-        server.MapGet("/app.js", () => SimpleWebServer.Response.Text(ReadAsset("app.js"), "text/javascript", noStore));
-        server.MapGet("/transport.js", () => SimpleWebServer.Response.Text(ReadAsset("transport.js"), "text/javascript", noStore));
-        // PWA manifest — lets "Add to home screen" launch fullscreen (no browser chrome).
-        server.MapGet("/manifest.webmanifest", () => SimpleWebServer.Response.Text(ReadAsset("manifest.webmanifest"), "application/manifest+json"));
+        var spaRoot = !string.IsNullOrWhiteSpace(uiContentRoot) && Directory.Exists(uiContentRoot)
+            ? Path.GetFullPath(uiContentRoot)
+            : null;
 
-        // CanvasKit (WASM Skia) — bundled locally for offline in-cab use. The wasm is
-        // served as application/wasm so the browser can streaming-compile it.
-        server.MapGet("/vendor/canvaskit.js", () => SimpleWebServer.Response.Text(ReadAsset("vendor.canvaskit.js"), "text/javascript"));
-        server.MapGet("/vendor/canvaskit.wasm", () => SimpleWebServer.Response.Bytes(ReadAssetBytes("vendor.canvaskit.wasm"), "application/wasm"));
+        if (spaRoot is not null)
+        {
+            // Product SPA (SeederTerminal, etc.): Vite dist — index + /assets/* only
+            // (avoid a "/" catch-all that would shadow /icons, /sattile, …).
+            server.MapGet("/", () => ServeSpaFile(spaRoot, "index.html", noStore));
+            server.MapGetPrefix("/assets/", rel =>
+            {
+                if (string.IsNullOrEmpty(rel) || rel.Contains("..", StringComparison.Ordinal))
+                    return SimpleWebServer.Response.NotFound;
+                return ServeSpaFile(spaRoot, Path.Combine("assets", rel), noStore);
+            });
+        }
+        else
+        {
+            server.MapGet("/", () => SimpleWebServer.Response.Text(ReadAsset("index.html"), "text/html", noStore));
+            server.MapGet("/app.js", () => SimpleWebServer.Response.Text(ReadAsset("app.js"), "text/javascript", noStore));
+            server.MapGet("/transport.js", () => SimpleWebServer.Response.Text(ReadAsset("transport.js"), "text/javascript", noStore));
+            // PWA manifest — lets "Add to home screen" launch fullscreen (no browser chrome).
+            server.MapGet("/manifest.webmanifest", () => SimpleWebServer.Response.Text(ReadAsset("manifest.webmanifest"), "application/manifest+json"));
+        }
+
+        // CanvasKit (WASM Skia) — prefer SPA vendor/ if present, else embedded reference assets.
+        server.MapGet("/vendor/canvaskit.js", () =>
+        {
+            if (spaRoot is not null)
+            {
+                var disk = Path.Combine(spaRoot, "vendor", "canvaskit.js");
+                if (File.Exists(disk))
+                    return SimpleWebServer.Response.Text(File.ReadAllText(disk), "text/javascript");
+            }
+            return SimpleWebServer.Response.Text(ReadAsset("vendor.canvaskit.js"), "text/javascript");
+        });
+        server.MapGet("/vendor/canvaskit.wasm", () =>
+        {
+            if (spaRoot is not null)
+            {
+                var disk = Path.Combine(spaRoot, "vendor", "canvaskit.wasm");
+                if (File.Exists(disk))
+                    return SimpleWebServer.Response.Bytes(File.ReadAllBytes(disk), "application/wasm");
+            }
+            return SimpleWebServer.Response.Bytes(ReadAssetBytes("vendor.canvaskit.wasm"), "application/wasm");
+        });
 
         // Right-nav toolbar icons (PNG/GIF), embedded from wwwroot/icons. Filename-only
         // (no path traversal); unknown names 404.
@@ -324,6 +365,32 @@ public sealed class RemoteServerHost
             return new WebImage(jpg, "image/jpeg");
         }
         catch { return null; }
+    }
+
+    private static SimpleWebServer.Response ServeSpaFile(
+        string root, string relative, IReadOnlyList<(string, string)>? headers)
+    {
+        var full = Path.GetFullPath(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
+        if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !File.Exists(full))
+            return SimpleWebServer.Response.NotFound;
+        var ext = Path.GetExtension(full).ToLowerInvariant();
+        var mime = ext switch
+        {
+            ".html" => "text/html",
+            ".js" => "text/javascript",
+            ".css" => "text/css",
+            ".json" => "application/json",
+            ".svg" => "image/svg+xml",
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            ".wasm" => "application/wasm",
+            ".map" => "application/json",
+            ".ico" => "image/x-icon",
+            ".woff2" => "font/woff2",
+            _ => "application/octet-stream",
+        };
+        return SimpleWebServer.Response.Bytes(File.ReadAllBytes(full), mime, headers);
     }
 
     private static string ReadAsset(string name)
