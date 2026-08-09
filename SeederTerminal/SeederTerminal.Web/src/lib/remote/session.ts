@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store'
 import { createRemoteTransport } from './transport.js'
 import type { Scene, Tick, StatusBar, ConnState } from './types'
+import { pushTickPose, clearPoseBuffer } from '../map/poseBuffer'
 
 export const scene = writable<Scene | null>(null)
 export const tick = writable<Tick | null>(null)
@@ -24,7 +25,10 @@ export function startRemote() {
   if (transport) return transport
   transport = createRemoteTransport({
     onScene: (s: Scene) => scene.set(s),
-    onTick: (t: Tick) => tick.set(t),
+    onTick: (t: Tick) => {
+      tick.set(t)
+      pushTickPose(t)
+    },
     onStatusBar: (s: StatusBar) => statusBar.set(s),
     onHello: (id: string) => clientId.set(id),
     onStatus: (s: string) => {
@@ -53,6 +57,7 @@ export function stopRemote() {
   presenceTimer = null
   transport?.stop()
   transport = null
+  clearPoseBuffer()
 }
 
 export function getConnSnapshot() {

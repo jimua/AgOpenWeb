@@ -11,6 +11,7 @@
   import SingulationWidget from './lib/components/SingulationWidget.svelte'
   import DrivingControlsWidget from './lib/components/DrivingControlsWidget.svelte'
   import CameraControls from './lib/components/CameraControls.svelte'
+  import { renderFps } from './lib/stores/fps'
 
   let landscape = $state(true)
 
@@ -46,6 +47,10 @@
 
   <header class="topbar">
     <div class="brand">{$_('app.title')}</div>
+    <div class="fps" title="Client render rate">
+      <span class="fps-k">FPS</span>
+      <span class="fps-v">{$renderFps > 0 ? $renderFps.toFixed(0) : '—'}</span>
+    </div>
     <div class="conn" class:ok={$connState === 'connected'}>{connLabel}</div>
     <div class="langs" title={$_('language')}>
       <button onclick={() => setLanguage('en')}>EN</button>
@@ -106,6 +111,28 @@
     font-size: 16px;
     letter-spacing: 0.02em;
     text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
+  }
+  .fps {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    font-variant-numeric: tabular-nums;
+    text-shadow: none;
+  }
+  .fps-k {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+  }
+  .fps-v {
+    font-size: 15px;
+    font-weight: 700;
+    min-width: 2ch;
   }
   .conn {
     margin-left: auto;

@@ -4,6 +4,7 @@
   import { scene, tick } from '../remote/session'
   import { pxPerM, followVehicle, northUp } from '../map/camera'
   import { createMapRenderer, loadCanvasKit, type MapRenderer } from '../map/renderer'
+  import { noteFrame, resetFps } from '../stores/fps'
 
   let canvas: HTMLCanvasElement
   let renderer: MapRenderer | null = null
@@ -25,8 +26,9 @@
         window.addEventListener('resize', resize)
         removeResize = () => window.removeEventListener('resize', resize)
 
-        const loop = () => {
+        const loop = (now: number) => {
           if (!alive || !renderer) return
+          noteFrame(now)
           renderer.draw(get(scene), get(tick), {
             pxPerM: get(pxPerM),
             follow: get(followVehicle),
@@ -47,6 +49,7 @@
       cancelAnimationFrame(raf)
       renderer?.dispose()
       renderer = null
+      resetFps()
     }
   })
 </script>

@@ -5,6 +5,7 @@
  */
 
 import type { Scene, Tick } from '../remote/types'
+import { sampleRenderPose, sampleRenderTool } from './poseBuffer'
 
 declare global {
   interface Window {
@@ -152,27 +153,24 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
     ensureGround()
     if (!skGround || !groundPaint) return
 
-    const W = skGround.width()
-    const H = skGround.height()
-    // World-anchored repeat; only cam mod TILE_M matters (same as AgOpenWeb).
-    const offE = camE - Math.floor(camE / TILE_M) * TILE_M
-    const offN = camN - Math.floor(camN / TILE_M) * TILE_M
-    const lm = [TILE_M / W, 0, -offE, 0, TILE_M / H, -offN, 0, 0, 1]
+    // We draw AFTER translate(-cam), so canvas coords are WORLD E/N.
+    // Shader must be world-anchored (no cam mod phase). AgOpenWeb draws the
+    // ground in CAMERA-relative space and applies cam%50 in the local matrix —
+    // doing both world coords AND cam phase made the texture slide vs the grid.
+    if (!groundShader) {
+      const W = skGround.width()
+      const H = skGround.height()
+      const lm = [TILE_M / W, 0, 0, 0, TILE_M / H, 0, 0, 0, 1]
+      groundShader = skGround.makeShaderOptions(
+        CK.TileMode.Repeat,
+        CK.TileMode.Repeat,
+        CK.FilterMode.Linear,
+        CK.MipmapMode.Linear,
+        lm,
+      )
+      groundPaint.setShader(groundShader)
+    }
 
-    // Detach old shader from paint before delete — Paint still holds a ref and
-    // BindingError "Shader instance already deleted" if we double-free.
-    const prev = groundShader
-    groundShader = skGround.makeShaderOptions(
-      CK.TileMode.Repeat,
-      CK.TileMode.Repeat,
-      CK.FilterMode.Linear,
-      CK.MipmapMode.Linear,
-      lm,
-    )
-    groundPaint.setShader(groundShader)
-    if (prev) safeDelete(prev)
-
-    // Camera-relative rect large enough to cover the view (we already translated -cam).
     const half = Math.max(Math.max(vw, vh) / pxPerM, 300)
     sk.drawRect(CK.LTRBRect(camE - half, camN - half, camE + half, camN + half), groundPaint)
   }
@@ -225,7 +223,11 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
     sk.save()
     sk.scale(dpr, dpr)
 
-    const pose = tick?.pose
+    // Smooth pose between ~10 Hz ticks (AgOpenWeb poseBuf + RENDER_DELAY).
+    // Using raw tick.pose here made the follow-camera snap once per tick.
+    const smooth = sampleRenderPose()
+    const smoothTool = sampleRenderTool()
+    const pose = smooth ?? tick?.pose ?? null
     const cx = pose?.e ?? 0
     const cy = pose?.n ?? 0
     const heading = pose?.heading ?? 0
@@ -307,12 +309,12 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
       }
     }
 
-    // 4) Tool sections (world metres, red when working). Don't gate on tool.ready —
-    // AgOpenWeb draws whenever tool pose is non-zero / present.
-    if (scene?.toolSections?.length && tick?.tool && (tick.tool.e !== 0 || tick.tool.n !== 0 || pose)) {
-      const th = tick.tool.heading
-      const te = tick.tool.e
-      const tn = tick.tool.n
+    // 4) Tool sections — use interpolated tool pose so the bar glides with the tractor.
+    const toolPose = smoothTool ?? (tick?.tool ? { e: tick.tool.e, n: tick.tool.n, heading: tick.tool.heading } : null)
+    if (scene?.toolSections?.length && toolPose && (toolPose.e !== 0 || toolPose.n !== 0 || pose)) {
+      const th = toolPose.heading
+      const te = toolPose.e
+      const tn = toolPose.n
       const ps = Math.sin(th + Math.PI / 2)
       const pc = Math.cos(th + Math.PI / 2)
       const hs = Math.sin(th)
@@ -324,7 +326,7 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
         const L = span.left + halfGap
         const R = span.right - halfGap
         if (R - L < 0.01) continue
-        const code = tick.sections[i] ?? 0
+        const code = tick?.sections[i] ?? 0
         const col = SECTION_COLORS[code] ?? SECTION_COLORS[0]
         const sp = fill(col[0], col[1], col[2], col[3])
         const corners = [
