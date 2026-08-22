@@ -78,6 +78,7 @@ Config/profiles: use AgOpenWeb `ConfigurationStore` unless a concrete gap appear
 
 ## Phasing
 
-1. Spike — Svelte app + map/transport against AgOpenWeb `:5174` + Main overlays.
+1. Spike — Svelte app + map/transport against AgOpenWeb `:5174` + Main overlays. See [`SPIKE_NOTES.md`](SPIKE_NOTES.md).
 2. Product shell — Desktop/Android on `:5175`, embed/serve `dist/`, Core telemetry seam.
-3. Later — ROS2, Program/Vehicle/Field pages, themes, optional cloud sync.
+3. Post-spike next steps — see [`NEXT_STEPS.md`](NEXT_STEPS.md) (Phases A–E).
+4. Later — ROS2, themes, optional cloud sync.

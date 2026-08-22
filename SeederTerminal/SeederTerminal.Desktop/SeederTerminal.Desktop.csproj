@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <RootNamespace>SeederTerminal.Desktop</RootNamespace>
     <AssemblyName>SeederTerminal.Desktop</AssemblyName>
@@ -34,13 +36,14 @@
 
   <!-- Build Svelte SPA then copy dist next to the exe for RemoteServerHost uiContentRoot. -->
   <Target Name="BuildSeederWeb" BeforeTargets="Build" Condition="Exists('..\SeederTerminal.Web\package.json')">
-    <Exec WorkingDirectory="..\SeederTerminal.Web" Command="npm run build" IgnoreExitCode="true" />
+    <Exec WorkingDirectory="..\SeederTerminal.Web" Command="npm run build" />
+    <Error Condition="!Exists('..\SeederTerminal.Web\dist\index.html')"
+           Text="SeederTerminal.Web build failed: dist/index.html missing. Run 'npm install &amp;&amp; npm run build' in SeederTerminal.Web." />
     <ItemGroup>
       <_SeederDist Include="..\SeederTerminal.Web\dist\**\*" />
     </ItemGroup>
     <Copy SourceFiles="@(_SeederDist)"
           DestinationFiles="@(_SeederDist->'$(OutputPath)wwwroot\%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true"
-          Condition="Exists('..\SeederTerminal.Web\dist\index.html')" />
+          SkipUnchangedFiles="true" />
   </Target>
 </Project>

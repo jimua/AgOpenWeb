@@ -1,47 +1,47 @@
-# Svelte + TS + Vite
+# SeederTerminal.Web
 
-This template should help get you started developing with Svelte and TypeScript in Vite.
+Svelte 5 + TypeScript + Vite cabin UI for SeederTerminal. The built `dist/` is served by Seeder Desktop on port **5175** (product mode). AgOpenWeb’s reference PWA on port **5174** is for protocol/map reference only.
 
-## Recommended IDE Setup
+## Prerequisites
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
+- **Node.js** (LTS) and npm — required when building `SeederTerminal.Desktop` (MSBuild runs `npm run build` here).
+- First-time setup: `npm install` in this directory.
 
-## Need an official Svelte framework?
+## Dev (hot reload)
 
-Check out [SvelteKit](https://github.com/sveltejs/kit#readme), which is also powered by Vite. Deploy anywhere with its serverless-first approach and adapt to various platforms, with out of the box support for TypeScript, SCSS, and Less, and easily-added support for mdsvex, GraphQL, PostCSS, Tailwind CSS, and more.
+Uses Vite on `:5175` with a proxy to AgOpenWeb Desktop on `:5174` for `/ws`, `/vendor`, `/icons`, `/sattile`, `/backpic`, and `/sounds`.
 
-## Technical considerations
+```bash
+# Terminal 1 — guidance backend + reference assets
+dotnet run --project Platforms/AgOpenWeb.Desktop/AgOpenWeb.Desktop.csproj
 
-**Why use this over SvelteKit?**
-
-- It brings its own routing solution which might not be preferable for some users.
-- It is first and foremost a framework that just happens to use Vite under the hood, not a Vite app.
-
-This template contains as little as possible to get started with Vite + TypeScript + Svelte, while taking into account the developer experience with regards to HMR and intellisense. It demonstrates capabilities on par with the other `create-vite` templates and is a good starting point for beginners dipping their toes into a Vite + Svelte project.
-
-Should you later need the extended capabilities and extensibility provided by SvelteKit, the template has been structured similarly to SvelteKit so that it is easy to migrate.
-
-**Why `global.d.ts` instead of `compilerOptions.types` inside `jsconfig.json` or `tsconfig.json`?**
-
-Setting `compilerOptions.types` shuts out all other types not explicitly listed in the configuration. Using triple-slash references keeps the default TypeScript setting of accepting type information from the entire workspace, while also adding `svelte` and `vite/client` type information.
-
-**Why include `.vscode/extensions.json`?**
-
-Other templates indirectly recommend extensions via the README, but this file allows VS Code to prompt the user to install the recommended extension upon opening the project.
-
-**Why enable `allowJs` in the TS template?**
-
-While `allowJs: false` would indeed prevent the use of `.js` files in the project, it does not prevent the use of JavaScript syntax in `.svelte` files. In addition, it would force `checkJs: false`, bringing the worst of both worlds: not being able to guarantee the entire codebase is TypeScript, and also having worse typechecking for the existing JavaScript. In addition, there are valid use cases in which a mixed codebase may be relevant.
-
-**Why is HMR not preserving my local component state?**
-
-HMR state preservation comes with a number of gotchas! It has been disabled by default in both `svelte-hmr` and `@sveltejs/vite-plugin-svelte` due to its often surprising behavior. You can read the details [here](https://github.com/rixo/svelte-hmr#svelte-hmr).
-
-If you have state that's important to retain within a component, consider creating an external store which would not be replaced by HMR.
-
-```ts
-// store.ts
-// An extremely simple external store
-import { writable } from 'svelte/store'
-export default writable(0)
+# Terminal 2 — Svelte dev server
+cd SeederTerminal/SeederTerminal.Web
+npm install
+npm run dev
 ```
+
+Open **http://localhost:5175** in the browser (or use the Vite URL shown in the terminal).
+
+## Product (single process)
+
+No AgOpenWeb Desktop and no Vite. Seeder Desktop builds this SPA into `wwwroot/` next to the exe and hosts the UI + WebSocket on **5175**.
+
+```bash
+dotnet build --project SeederTerminal/SeederTerminal.Desktop/SeederTerminal.Desktop.csproj
+dotnet run --project SeederTerminal/SeederTerminal.Desktop/SeederTerminal.Desktop.csproj
+```
+
+The WebView loads **http://127.0.0.1:5175/**. CanvasKit and map icons come from the embedded host (`/vendor`, `/icons`); the SPA shell comes from `dist/`.
+
+## Scripts
+
+| Command        | Purpose                          |
+|----------------|----------------------------------|
+| `npm run dev`  | Vite dev server (dev mode above) |
+| `npm run build`| Production bundle → `dist/`      |
+| `npm run check`| `svelte-check` + TypeScript      |
+
+## LAN access
+
+With Seeder Desktop listening on `0.0.0.0:5175`, other cab devices can use `http://<cabin-ip>:5175/`.

@@ -56,7 +56,7 @@
 
 <canvas bind:this={canvas} class="map-canvas" aria-label="Guidance map"></canvas>
 {#if error}
-  <div class="error">{error} — start AgOpenWeb on :5174 for /vendor proxy</div>
+  <div class="error">{error} — check that the guidance backend is running and map assets loaded.</div>
 {/if}
 
 <style>
