@@ -65,9 +65,9 @@ public class NoAmbientStoreAccessTests
     private static string FindRepoRoot()
     {
         var dir = new DirectoryInfo(System.AppContext.BaseDirectory);
-        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "AgOpenWeb.sln")))
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "AgOpenWeb.slnx")))
             dir = dir.Parent;
-        Assert.That(dir, Is.Not.Null, "Could not locate repo root (AgOpenWeb.sln) from test base dir.");
+        Assert.That(dir, Is.Not.Null, "Could not locate repo root (AgOpenWeb.slnx) from test base dir.");
         return dir!.FullName;
     }
 }

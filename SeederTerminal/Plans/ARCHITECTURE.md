@@ -34,13 +34,12 @@ AgOpenWeb/
 ├── Shared/                         # AgOpenWeb guidance brain
 ├── Platforms/                      # AgOpenWeb heads + reference wwwroot UI
 ├── SeederTerminal/
-│   ├── SeederTerminal.sln
 │   ├── SeederTerminal.Web/         # Vite + Svelte + TS
 │   ├── SeederTerminal.Core/        # ISeederTelemetrySource (sim → ROS2)
 │   ├── SeederTerminal.Desktop/     # NativeWebView → :5175
 │   ├── SeederTerminal.Android/
 │   └── Plans/
-└── AgOpenWeb.sln
+└── AgOpenWeb.slnx
 ```
 
 ## Reuse vs own

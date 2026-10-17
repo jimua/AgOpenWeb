@@ -60,7 +60,7 @@ This guide covers building AgOpenWeb on Windows, macOS (Intel and Apple Silicon)
 
 3. **Restore NuGet packages** (automatic on first build, or manual):
    ```bash
-   dotnet restore AgOpenWeb.sln
+    dotnet restore AgOpenWeb.slnx
    ```
 
 ### Windows
@@ -137,7 +137,7 @@ dotnet run --project Platforms\AgOpenWeb.Desktop\AgOpenWeb.Desktop.csproj
 
 **Build entire solution:**
 ```cmd
-dotnet build AgOpenWeb.sln
+dotnet build AgOpenWeb.slnx
 ```
 
 ### macOS (Intel)
@@ -398,7 +398,7 @@ Tests verify:
 **NuGet restore failures**
 ```bash
 dotnet nuget locals all --clear
-dotnet restore AgOpenWeb.sln
+dotnet restore AgOpenWeb.slnx
 ```
 
 **iOS simulator not found**

@@ -1,0 +1,33 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Platforms/">
+    <Project Path="Platforms/AgOpenWeb.Android/AgOpenWeb.Android.csproj" />
+  </Folder>
+  <Folder Name="/SeederTerminal/">
+    <Project Path="SeederTerminal/SeederTerminal.Android/SeederTerminal.Android.csproj" />
+    <Project Path="SeederTerminal/SeederTerminal.Core/SeederTerminal.Core.csproj" />
+    <Project Path="SeederTerminal/SeederTerminal.Desktop/SeederTerminal.Desktop.csproj" />
+  </Folder>
+  <Folder Name="/Shared/">
+    <Project Path="Shared/AgOpenWeb.RemoteServer/AgOpenWeb.RemoteServer.csproj" />
+    <Project Path="Shared/AgOpenWeb.RemoteWiring/AgOpenWeb.RemoteWiring.csproj" />
+  </Folder>
+  <Folder Name="/Simulators/">
+    <Project Path="Simulators/AgOpenWeb.VehicleSimulator/AgOpenWeb.VehicleSimulator.csproj" />
+    <Project Path="Simulators/AgOpenWeb.VirtualModules/AgOpenWeb.VirtualModules.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="Tests/AgOpenWeb.Models.Tests/AgOpenWeb.Models.Tests.csproj" />
+    <Project Path="Tests/AgOpenWeb.Services.Tests/AgOpenWeb.Services.Tests.csproj" />
+    <Project Path="Tests/AgOpenWeb.ViewModels.Tests/AgOpenWeb.ViewModels.Tests.csproj" />
+  </Folder>
+  <Project Path="Platforms/AgOpenWeb.Desktop/AgOpenWeb.Desktop.csproj" />
+  <Project Path="Platforms/AgOpenWeb.iOS/AgOpenWeb.iOS.csproj" />
+  <Project Path="Shared/AgOpenWeb.Models/AgOpenWeb.Models.csproj" />
+  <Project Path="Shared/AgOpenWeb.Services/AgOpenWeb.Services.csproj" />
+  <Project Path="Shared/AgOpenWeb.ViewModels/AgOpenWeb.ViewModels.csproj" />
+</Solution>

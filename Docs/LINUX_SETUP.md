@@ -93,7 +93,7 @@ git clone <repository-url> AgOpenWeb
 cd AgOpenWeb
 
 # Restore NuGet packages and build
-dotnet build AgOpenWeb.sln
+dotnet build AgOpenWeb.slnx
 ```
 
 ## 4. Run the application

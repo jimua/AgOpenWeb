@@ -1,5 +1,7 @@
 # AgOpenWeb3 Architecture
 
+> **Historical Notice:** The backend sections of this document (domain models, configuration, state management, guidance algorithms, UDP/PGN services) remain active and useful. However, the native Avalonia view layer (`AgOpenWeb.Views`) was removed in favor of web UI. The current product UI is **SeederTerminal** (see [SeederTerminal/Plans/ARCHITECTURE.md](../SeederTerminal/Plans/ARCHITECTURE.md)).
+
 This document describes the current architecture of AgOpenWeb3, including service communication patterns, state management, domain models, and data flow.
 
 **Last Updated:** December 2025
