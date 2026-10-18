@@ -15,7 +15,7 @@
   )
 </script>
 
-<div class="widget" class:alert={isAlert}>
+<div class="widget">
   <div class="header">
     <div class="label">{$_('seedRate')}</div>
     <div class="dev-badge" class:alert={isAlert}>
@@ -46,14 +46,9 @@
     background: var(--panel);
     border: 1px solid var(--panel-border);
     border-radius: 12px;
-    padding: 10px 12px;
+    padding: 10px 14px;
     min-width: 200px;
     backdrop-filter: blur(8px);
-    transition: border-color 0.2s, box-shadow 0.2s;
-  }
-  .widget.alert {
-    border-color: #e0a045;
-    box-shadow: 0 0 12px rgba(224, 160, 69, 0.25);
   }
   .header {
     display: flex;

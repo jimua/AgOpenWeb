@@ -11,7 +11,20 @@
 
 <header class="page-header">
   <button class="back-btn" onclick={goBack} aria-label={$_('back')}>
-    <span class="back-arrow">‹</span>
+    <svg
+      class="back-icon"
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2.5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
     <span class="back-text">{$_('back')}</span>
   </button>
   <h2 class="page-title">{title}</h2>
@@ -30,27 +43,37 @@
     flex-shrink: 0;
   }
   .back-btn {
-    min-height: 48px;
-    display: flex;
+    height: 40px;
+    min-height: 40px;
+    display: inline-flex;
     align-items: center;
-    gap: 6px;
-    background: transparent;
-    border: 1px solid transparent;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--panel-border);
     border-radius: 8px;
     color: var(--text);
-    padding: 0 12px;
+    padding: 0 14px 0 10px;
     font-size: 15px;
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
   }
   .back-btn:hover {
     background: rgba(255, 255, 255, 0.08);
+    border-color: var(--accent);
+    color: #ffffff;
   }
-  .back-arrow {
-    font-size: 24px;
-    line-height: 1;
+  .back-icon {
+    display: block;
+    flex-shrink: 0;
     color: var(--accent);
+    transition: transform 0.15s ease;
+  }
+  .back-btn:hover .back-icon {
+    transform: translateX(-2px);
+  }
+  .back-text {
+    line-height: 1;
   }
   .page-title {
     margin: 0;

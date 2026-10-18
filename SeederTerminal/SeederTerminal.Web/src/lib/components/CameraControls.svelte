@@ -21,7 +21,7 @@
     width: 48px;
     height: 48px;
     border-radius: 10px;
-    border: 1px solid #4e739a;
+    border: 1px solid var(--panel-border);
     background: #20344d;
     color: #e6f1ff;
     font-size: 22px;

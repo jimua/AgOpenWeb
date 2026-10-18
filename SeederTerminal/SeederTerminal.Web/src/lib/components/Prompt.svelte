@@ -84,7 +84,22 @@
   <div class="dialog" role="dialog" aria-modal="true" tabindex="-1">
     <div class="header">
       <h3>{title}</h3>
-      <button class="close-btn" onclick={onCancel} aria-label="Close">✕</button>
+      <button class="close-btn" onclick={onCancel} aria-label="Close">
+        <svg
+          viewBox="0 0 24 24"
+          width="18"
+          height="18"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
     </div>
 
     <div class="body">
@@ -231,11 +246,17 @@
     background: transparent;
     border: none;
     color: var(--text-muted);
-    font-size: 18px;
     cursor: pointer;
-    padding: 6px 10px;
+    padding: 6px;
     border-radius: 6px;
-    min-height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s;
+  }
+  .close-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text);
   }
   .body {
     padding: 18px;

@@ -30,7 +30,7 @@
     background: var(--panel);
     border: 1px solid var(--panel-border);
     border-radius: 12px;
-    padding: 10px;
+    padding: 10px 14px;
     min-width: 220px;
     max-height: 42vh;
     overflow: auto;

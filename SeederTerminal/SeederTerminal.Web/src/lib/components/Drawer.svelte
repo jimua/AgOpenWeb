@@ -71,8 +71,24 @@
     aria-label="Toggle menu"
     title={isOpen ? 'Close menu' : 'Open menu'}
   >
-    <div class="handle-bar"></div>
-    <span class="handle-icon">{isOpen ? '‹' : '›'}</span>
+    <svg
+      class="handle-icon"
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2.5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      {#if isOpen}
+        <polyline points="15 18 9 12 15 6" />
+      {:else}
+        <polyline points="9 18 15 12 9 6" />
+      {/if}
+    </svg>
   </button>
 </aside>
 
@@ -159,8 +175,8 @@
     color: var(--accent);
   }
   .handle {
-    width: 30px;
-    height: 90px;
+    width: 26px;
+    height: 64px;
     align-self: center;
     background: #142234;
     border: 1px solid var(--panel-border);
@@ -168,27 +184,19 @@
     border-radius: 0 12px 12px 0;
     cursor: pointer;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: var(--text);
+    color: #8da4be;
     box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.35);
     padding: 0;
+    transition: background 0.15s, color 0.15s;
   }
   .handle:hover {
     background: #1c3048;
-  }
-  .handle-bar {
-    width: 4px;
-    height: 24px;
-    background: var(--panel-border);
-    border-radius: 2px;
-    margin-bottom: 2px;
+    color: var(--accent);
   }
   .handle-icon {
-    font-size: 20px;
-    line-height: 1;
-    font-weight: 700;
-    color: var(--text-muted);
+    display: block;
+    flex-shrink: 0;
   }
 </style>
