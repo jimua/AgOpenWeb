@@ -28,6 +28,7 @@ public sealed class MainWindow : Window
     {
         HorizontalAlignment = HorizontalAlignment.Stretch,
         VerticalAlignment = VerticalAlignment.Stretch,
+        IsVisible = false,
     };
     private readonly Border _splash;
     private IHost? _host;
@@ -51,10 +52,12 @@ public sealed class MainWindow : Window
             {
                 if (e.IsSuccess)
                 {
+                    _web.IsVisible = true;
                     _splash.IsVisible = false;
                     return;
                 }
 
+                _web.IsVisible = false;
                 _splash.IsVisible = true;
                 _splash.Child = SplashText(
                     $"Failed to load Seeder UI at http://127.0.0.1:{Port}/.\n\nNavigation did not complete successfully.");
@@ -77,6 +80,7 @@ public sealed class MainWindow : Window
             _hostLoop = started.HostLoop;
             _backend = started.Backend;
 
+            _web.IsVisible = true;
             _web.Source = new Uri($"http://127.0.0.1:{Port}/");
         }
         catch (Exception ex)

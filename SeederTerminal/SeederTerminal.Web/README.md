@@ -28,7 +28,7 @@ Open **http://localhost:5175** in the browser (or use the Vite URL shown in the 
 No AgOpenWeb Desktop and no Vite. Seeder Desktop builds this SPA into `wwwroot/` next to the exe and hosts the UI + WebSocket on **5175**.
 
 ```bash
-dotnet build --project SeederTerminal/SeederTerminal.Desktop/SeederTerminal.Desktop.csproj
+dotnet build SeederTerminal/SeederTerminal.Desktop/SeederTerminal.Desktop.csproj
 dotnet run --project SeederTerminal/SeederTerminal.Desktop/SeederTerminal.Desktop.csproj
 ```
 

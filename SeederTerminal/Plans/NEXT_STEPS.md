@@ -21,22 +21,22 @@ flowchart LR
   subgraph next [Next]
     Harden[Harden Desktop product path]
     MapParity[Map and tool parity]
-    Telemetry[Wire Core telemetry]
+    Pages[Program Vehicle Field]
     Android[Android Avalonia APK]
-    Pages[Program Vehicle Field later]
+    Telemetry[Wire Seeder telemetry later]
   end
   SpikeUI --> Harden
   HostAPI --> Harden
   DeskShell --> Harden
   Harden --> MapParity
-  MapParity --> Telemetry
-  Telemetry --> Android
-  Android --> Pages
+  MapParity --> Pages
+  Pages --> Android
+  Android --> Telemetry
 ```
 
 ## Priority (locked)
 
-**Balanced:** ship a reliable Desktop product loop first, then map/tool parity, then telemetry wiring, then Android, then extra pages. Themes and cloud stay deferred.
+**Balanced:** ship a reliable Desktop product loop first, then map/tool parity, then extra product pages, then Android, then telemetry wiring. Themes and cloud stay deferred.
 
 ---
 
@@ -61,23 +61,22 @@ Stay in `renderer.ts` + related stores; do not fork WireCodec.
 - Optional: light perspective / pitch later — only after top-down parity feels solid
 - Keep pose buffer (~130 ms) as the motion model; tune only if Tick rate changes
 
-### Phase C — Seeder telemetry path
+### Phase C — Product UX beyond Main (after A–B)
 
-Today: widgets use `seederSim.ts`. Core has `ISeederTelemetrySource` registered in Desktop but unused by the SPA.
-
-- Drive sim from **Core** (or project samples onto Status/Tick / a small Seeder-owned WS extension) so Desktop and future Android share one source
-- SPA widgets subscribe to that feed; keep client sim only as a Vite-dev fallback when no host telemetry is present
-- Leave `Ros2SeederTelemetrySource` as stub until a real ROS2 bridge exists
+- Drawer stubs → Program / Vehicle / Field pages when a cabin workflow needs them
+- Widget polish (layout, hit targets, night readability) without a full theme system yet
+- i18n coverage for new strings (EN + UK)
 
 ### Phase D — Android product head
 
 Mirror `Platforms/AgOpenWeb.Android`: foreground `BackendService` + `NativeWebView` → `http://127.0.0.1:5175/`, unpack/serve Vite `dist` as `uiContentRoot`. Until then, LAN browser against Desktop remains the cabin Android workaround.
 
-### Phase E — Product UX beyond Main (after A–C)
+### Phase E — Seeder telemetry path
 
-- Drawer stubs → Program / Vehicle / Field pages only when a cabin workflow needs them
-- Widget polish (layout, hit targets, night readability) without a full theme system yet
-- i18n coverage for new strings (EN + UK)
+Today: widgets use `seederSim.ts`. Core has `ISeederTelemetrySource` registered in Desktop but unused by the SPA.
+
+- Drive Seeder telemetry from **Core** (or project samples onto Status/Tick / a small Seeder-owned WS extension) so Desktop and future Android share one source
+- SPA widgets subscribe to that feed; keep client sim only as a Vite-dev fallback when no host telemetry is present
 
 ### Explicitly later
 
@@ -95,11 +94,11 @@ Mirror `Platforms/AgOpenWeb.Android`: foreground `BackendService` + `NativeWebVi
 
 ## Phase checklist
 
-- [ ] Phase A — Desktop product path
+- [x] Phase A — Desktop product path
 - [ ] Phase B — Map / guidance visual parity
-- [ ] Phase C — Seeder telemetry path
+- [ ] Phase C — Product UX beyond Main
 - [ ] Phase D — Android product head
-- [ ] Phase E — Product UX beyond Main
+- [ ] Phase E — Seeder telemetry path
 
 ## Run modes
 
