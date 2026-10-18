@@ -1,10 +1,11 @@
 import { writable, derived, get } from 'svelte/store'
 import { createRemoteTransport } from './transport.js'
-import type { Scene, Tick, StatusBar, ConnState } from './types'
+import type { Scene, Tick, StatusBar, ConnState, Config } from './types'
 import { pushTickPose, clearPoseBuffer } from '../map/poseBuffer'
 
 export const scene = writable<Scene | null>(null)
 export const tick = writable<Tick | null>(null)
+export const config = writable<Config | null>(null)
 export const statusBar = writable<StatusBar | null>(null)
 export const connState = writable<ConnState>('connecting.')
 export const clientId = writable<string | null>(null)
@@ -29,6 +30,7 @@ export function startRemote() {
       tick.set(t)
       pushTickPose(t)
     },
+    onConfig: (c: Config) => config.set(c),
     onStatusBar: (s: StatusBar) => statusBar.set(s),
     onHello: (id: string) => clientId.set(id),
     onStatus: (s: string) => {

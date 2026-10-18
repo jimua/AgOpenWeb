@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { get } from 'svelte/store'
-  import { scene, tick } from '../remote/session'
+  import { scene, tick, config } from '../remote/session'
   import { pxPerM, followVehicle, northUp } from '../map/camera'
   import { createMapRenderer, loadCanvasKit, type MapRenderer } from '../map/renderer'
   import { noteFrame, resetFps } from '../stores/fps'
@@ -29,7 +29,7 @@
         const loop = (now: number) => {
           if (!alive || !renderer) return
           noteFrame(now)
-          renderer.draw(get(scene), get(tick), {
+          renderer.draw(get(scene), get(tick), get(config), {
             pxPerM: get(pxPerM),
             follow: get(followVehicle),
             northUp: get(northUp),

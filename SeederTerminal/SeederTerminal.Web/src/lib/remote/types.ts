@@ -41,9 +41,32 @@ export type Tick = {
     executing?: boolean
     passNumber?: number
   }
+  tools?: {
+    headlandOn: boolean
+    sectionInHeadland?: boolean
+    autoTrack?: boolean
+    skipRows?: number
+    skipRowsOn?: boolean
+    tramMode?: number
+  }
   hitchE: number
   hitchN: number
   hostMs: number
+}
+
+export type Config = {
+  vehicle?: {
+    trackWidth: number
+    wheelbase: number
+  }
+  tool?: {
+    type: number
+    totalWidth: number
+  }
+  display?: {
+    extraGuidelines: boolean
+    extraGuidelinesCount: number
+  }
 }
 
 export type StatusBar = {

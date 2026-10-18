@@ -4,7 +4,7 @@
  * (MakeFromCmds, MakeImageFromCanvasImageSource, tiled ground shader).
  */
 
-import type { Scene, Tick } from '../remote/types'
+import type { Scene, Tick, Config, Vec2 } from '../remote/types'
 import { sampleRenderPose, sampleRenderTool } from './poseBuffer'
 
 declare global {
@@ -21,14 +21,14 @@ export type MapCamera = {
   northUp: boolean
 }
 
-/** Section ColorCode → fill (same palette as AgOpenWeb SECTION_COLORS). */
+/** Section ColorCode → fill (matches AgOpenWeb SECTION_COLORS). */
 const SECTION_COLORS: [number, number, number, number][] = [
-  [90, 90, 90, 0.55], // 0 off
-  [220, 60, 50, 0.9], // 1 on / work
-  [50, 180, 80, 0.9], // 2
-  [50, 140, 220, 0.9], // 3
-  [180, 180, 60, 0.7], // 4
-  [160, 80, 180, 0.85], // 5
+  [242, 51, 51, 0.85], // 0 off (red)
+  [247, 247, 0, 0.9], // 1 manual on (yellow)
+  [0, 242, 0, 0.85], // 2 auto on (green)
+  [0, 222, 222, 0.85], // 3 turning off (cyan)
+  [255, 165, 0, 0.9], // 4 turning on (orange)
+  [150, 150, 150, 0.5], // 5 auto off (gray)
 ]
 
 const TILE_M = 50 // metres per ground-texture tile (native / AgOpenWeb)
@@ -40,6 +40,51 @@ function niceStep125(x: number): number {
   const f = x / Math.pow(10, exp)
   const nice = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10
   return nice * Math.pow(10, exp)
+}
+
+const AB_EXTEND = 3000 // metres added beyond each endpoint
+function extendAbLine(pts: Vec2[] | null): Vec2[] | null {
+  if (!pts || pts.length !== 2) return pts
+  const a = pts[0], b = pts[1]
+  let dx = b.e - a.e, dy = b.n - a.n
+  const len = Math.hypot(dx, dy)
+  if (len < 1e-6) return pts
+  dx /= len
+  dy /= len
+  return [
+    { e: a.e - dx * AB_EXTEND, n: a.n - dy * AB_EXTEND },
+    { e: b.e + dx * AB_EXTEND, n: b.n + dy * AB_EXTEND },
+  ]
+}
+
+function offsetLine(pts: Vec2[], offset: number): Vec2[] {
+  const out = new Array<Vec2>(pts.length)
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)]
+    const dx = b.e - a.e, dy = b.n - a.n, len = Math.hypot(dx, dy)
+    if (len < 1e-6) {
+      out[i] = pts[i]
+      continue
+    }
+    out[i] = { e: pts[i].e + (-dy / len) * offset, n: pts[i].n + (dx / len) * offset }
+  }
+  return out
+}
+
+function toolWidthM(scene: Scene | null, config: Config | null): number {
+  const ts = scene?.toolSections
+  if (ts && ts.length > 0) {
+    let lo = Infinity, hi = -Infinity
+    for (const s of ts) {
+      if (s.left < lo) lo = s.left
+      if (s.right > hi) hi = s.right
+    }
+    if (hi > lo) return hi - lo
+  }
+  if (config?.tool?.totalWidth && config.tool.totalWidth > 0) {
+    return config.tool.totalWidth
+  }
+  return 6
 }
 
 export async function loadCanvasKit(): Promise<CanvasKit> {
@@ -68,7 +113,7 @@ function loadHtmlImage(src: string): Promise<HTMLImageElement> {
 
 export type MapRenderer = {
   resize: (cssW: number, cssH: number, dpr: number) => void
-  draw: (scene: Scene | null, tick: Tick | null, cam: MapCamera) => void
+  draw: (scene: Scene | null, tick: Tick | null, config: Config | null, cam: MapCamera) => void
   dispose: () => void
 }
 
@@ -210,9 +255,9 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
   }
 
   const lineW = (metres: number, pxPerM: number) =>
-    Math.min(Math.max(metres * pxPerM, 1.5), 4) / pxPerM
+    Math.min(Math.max(metres * pxPerM, 1), 3.5) / pxPerM
 
-  const draw = (scene: Scene | null, tick: Tick | null, cam: MapCamera) => {
+  const draw = (scene: Scene | null, tick: Tick | null, config: Config | null, cam: MapCamera) => {
     if (disposed) return
     if (!surface) recreate()
     if (!surface) return
@@ -254,7 +299,7 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
       // Day palette (we use the light ground tile)
       const minor = stroke(80, 92, 110, 0.33, minorW)
       const major = stroke(60, 72, 90, 0.5, majorW)
-      const toolW = 6 // default implement width until config is wired
+      const toolW = toolWidthM(scene, config)
       const viewSpan = Math.max(vw, vh) / scale
       const spacing = Math.max(niceStep125(viewSpan / (toolW * 30)) * toolW, 1)
       const half = Math.max(viewSpan / 2, 180) * (cam.northUp ? 1 : Math.SQRT2)
@@ -282,35 +327,114 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
 
     // 3) Field geometry
     if (scene) {
-      const bp = stroke(40, 200, 90, 1, lineW(3, scale))
+      const bpOuter = stroke(242, 112, 89, 0.8, lineW(3, scale))
+      const bpInner = stroke(245, 245, 77, 1.0, lineW(3, scale))
       for (let i = 0; i < scene.boundaries.length; i++) {
-        poly(sk, scene.boundaries[i], bp, true)
+        const isInner = !!(scene.boundaryInner && scene.boundaryInner[i])
+        poly(sk, scene.boundaries[i], isInner ? bpInner : bpOuter, true)
       }
-      bp.delete()
+      bpOuter.delete()
+      bpInner.delete()
 
-      const tp = stroke(90, 160, 230, 0.85, lineW(1.5, scale))
-      for (const t of scene.tracks) poly(sk, t.points, tp, false)
-      tp.delete()
-
-      if (scene.guidanceLine?.length) {
-        const gp = stroke(40, 220, 90, 1, lineW(1.5, scale))
-        poly(sk, scene.guidanceLine, gp, false)
-        gp.delete()
-      }
-      if (scene.headland?.length) {
-        const hp = stroke(60, 220, 180, 0.85, lineW(2, scale))
+      // Headland line shows only when headland is ON (tick.tools.headlandOn)
+      if (scene.headland?.length && tick?.tools?.headlandOn) {
+        const hp = stroke(251, 235, 107, 1.0, lineW(3, scale))
         poly(sk, scene.headland, hp, true)
         hp.delete()
       }
+
+      // Extra guidelines: green rgba(51,153,50,0.6) over black shadow rgba(0,0,0,0.5)
+      if (config?.display?.extraGuidelines && scene.guidanceLine && scene.guidanceLine.length >= 2) {
+        const count = config.display.extraGuidelinesCount || 0
+        const toolW = toolWidthM(scene, config)
+        if (count >= 1 && toolW >= 0.1 && toolW * scale >= 3) {
+          const line = extendAbLine(scene.guidanceLine)!
+          const shadowPaint = stroke(0, 0, 0, 0.5, lineW(1.2, scale))
+          const guidePaint = stroke(51, 153, 50, 0.6, lineW(0.9, scale))
+          for (let i = 1; i <= count; i++) {
+            for (const off of [toolW * i, -toolW * i]) {
+              const ol = offsetLine(line, off)
+              poly(sk, ol, shadowPaint, false)
+              poly(sk, ol, guidePaint, false)
+            }
+          }
+          shadowPaint.delete()
+          guidePaint.delete()
+        }
+      }
+
+      // Next pass: cyan rgb(0,200,200) 1.2 m
+      if (scene.nextTrack?.length) {
+        const np = stroke(0, 200, 200, 1.0, lineW(1.2, scale))
+        poly(sk, scene.nextTrack, np, false)
+        np.delete()
+      }
+
+      // U-turn path: green rgb(77,242,77) 3.0 m
       if (scene.uTurnPath?.length) {
-        const up = stroke(255, 140, 60, 0.95, lineW(2, scale))
+        const up = stroke(77, 242, 77, 1.0, lineW(3, scale))
         poly(sk, scene.uTurnPath, up, false)
         up.delete()
       }
+
+      // Purple reference track: rgb(180,100,255) dashed, 0.9 m, ONLY when passNumber !== 0
+      const onRef = !tick || !tick.op || ((tick.op.passNumber ?? 0) | 0) === 0
+      if (!onRef && scene.tracks?.length) {
+        const rp = stroke(180, 100, 255, 1.0, lineW(0.9, scale))
+        let dashEffect: any = null
+        try {
+          dashEffect = CK.PathEffect?.MakeDash?.([9 / scale, 7 / scale], 0)
+          if (dashEffect) rp.setPathEffect(dashEffect)
+        } catch {
+          /* ignore if MakeDash unavailable */
+        }
+        for (const t of scene.tracks) {
+          const ext = extendAbLine(t.points)
+          if (ext) poly(sk, ext, rp, false)
+        }
+        if (dashEffect) {
+          try {
+            dashEffect.delete?.()
+          } catch {
+            /* ignore */
+          }
+        }
+        rp.delete()
+      }
+
+      // Follow guidance line: rgb(252,86,186) 1.5 m, always extendAbLine
+      if (scene.guidanceLine?.length) {
+        const gp = stroke(252, 86, 186, 1.0, lineW(1.5, scale))
+        const ext = extendAbLine(scene.guidanceLine)
+        if (ext) poly(sk, ext, gp, false)
+        gp.delete()
+      }
     }
 
-    // 4) Tool sections — use interpolated tool pose so the bar glides with the tractor.
+    // 4) Hitch line: yellow 3 px screen stroke (under tool footprint)
     const toolPose = smoothTool ?? (tick?.tool ? { e: tick.tool.e, n: tick.tool.n, heading: tick.tool.heading } : null)
+    if (pose && toolPose && (toolPose.e !== 0 || toolPose.n !== 0)) {
+      const trackWidth = config?.vehicle?.trackWidth && config.vehicle.trackWidth > 0.01 ? config.vehicle.trackWidth : 2.0
+      const wheelbase = config?.vehicle?.wheelbase && config.vehicle.wheelbase > 0.01 ? config.vehicle.wheelbase : 3.2
+      const toolType = config?.tool?.type ?? 1 // 0 front, 1 rear, 2 TBT, 3 trailing
+      const hitchPaint = stroke(255, 255, 0, 1, 3 / scale)
+      if (toolType === 3 || toolType === 2) {
+        if (tick?.hitchE != null && (tick.hitchE !== 0 || tick.hitchN !== 0)) {
+          poly(sk, [{ e: tick.hitchE, n: tick.hitchN }, { e: toolPose.e, n: toolPose.n }], hitchPaint, false)
+        }
+      } else {
+        const spread = trackWidth * 0.3
+        const front = toolType === 0
+        const baseE = pose.e + (front ? Math.sin(pose.heading) * wheelbase : 0)
+        const baseN = pose.n + (front ? Math.cos(pose.heading) * wheelbase : 0)
+        const ps = Math.cos(pose.heading), pc = -Math.sin(pose.heading)
+        poly(sk, [{ e: baseE - ps * spread, n: baseN - pc * spread }, { e: toolPose.e, n: toolPose.n }], hitchPaint, false)
+        poly(sk, [{ e: baseE + ps * spread, n: baseN + pc * spread }, { e: toolPose.e, n: toolPose.n }], hitchPaint, false)
+      }
+      hitchPaint.delete()
+    }
+
+    // 5) Tool sections — use interpolated tool pose so the bar glides with the tractor.
     if (scene?.toolSections?.length && toolPose && (toolPose.e !== 0 || toolPose.n !== 0 || pose)) {
       const th = toolPose.heading
       const te = toolPose.e
@@ -353,23 +477,25 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
       }
     }
 
-    // 5) Vehicle — TractorAoG sprite, else triangle
+    // 6) Vehicle — TractorAoG sprite, else triangle
     if (pose) {
       ensureTractor()
-      const trackWidth = 2.0
-      const wheelbase = 3.2
+      const trackWidth = config?.vehicle?.trackWidth && config.vehicle.trackWidth > 0.01 ? config.vehicle.trackWidth : 2.0
+      const wheelbase = config?.vehicle?.wheelbase && config.vehicle.wheelbase > 0.01 ? config.vehicle.wheelbase : 3.2
+      const SPR_REAR = 0.245
+      const SPR_FRONT = 0.75
+      const SPR_HALFX = 0.245
+      const bW = trackWidth / (2 * SPR_HALFX)
+      const bH = wheelbase / (SPR_FRONT - SPR_REAR)
+      const half = bW / 2
+      const top = (1 - SPR_REAR) * bH
+      const bot = -SPR_REAR * bH
+
+      sk.save()
+      sk.translate(pose.e, pose.n)
+      sk.rotate((-pose.heading * 180) / Math.PI, 0, 0)
+
       if (skTractor) {
-        const SPR_REAR = 0.245
-        const SPR_FRONT = 0.75
-        const SPR_HALFX = 0.245
-        const bW = trackWidth / (2 * SPR_HALFX)
-        const bH = wheelbase / (SPR_FRONT - SPR_REAR)
-        const half = bW / 2
-        const top = (1 - SPR_REAR) * bH
-        const bot = -SPR_REAR * bH
-        sk.save()
-        sk.translate(pose.e, pose.n)
-        sk.rotate((-pose.heading * 180) / Math.PI, 0, 0)
         sk.scale(1, -1)
         sk.drawImageRectOptions(
           skTractor,
@@ -379,28 +505,18 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
           CK.MipmapMode.None,
           null,
         )
-        sk.restore()
       } else {
-        const len = 4.5
-        const wid = 2.2
-        const h = pose.heading
-        const tipE = pose.e + Math.sin(h) * len
-        const tipN = pose.n + Math.cos(h) * len
-        const lx = pose.e - Math.sin(h) * len * 0.35 - Math.cos(h) * wid
-        const ly = pose.n - Math.cos(h) * len * 0.35 + Math.sin(h) * wid
-        const rx = pose.e - Math.sin(h) * len * 0.35 + Math.cos(h) * wid
-        const ry = pose.n - Math.cos(h) * len * 0.35 - Math.sin(h) * wid
-        const vp = fill(70, 170, 255, 0.95)
+        const vp = fill(57, 255, 106, 1.0) // #39FF6A
         const path = CK.Path.MakeFromCmds([
           CK.MOVE_VERB,
-          tipE,
-          tipN,
+          0,
+          top,
           CK.LINE_VERB,
-          lx,
-          ly,
+          -half,
+          bot,
           CK.LINE_VERB,
-          rx,
-          ry,
+          half,
+          bot,
           CK.CLOSE_VERB,
         ])
         if (path) {
@@ -409,6 +525,7 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
         }
         vp.delete()
       }
+      sk.restore()
     }
 
     sk.restore()

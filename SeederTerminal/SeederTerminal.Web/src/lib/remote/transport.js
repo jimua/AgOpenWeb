@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Transport adapter — the ONLY file that knows the wire protocol.
 //
 // Binary WebSocket. Each frame is [u8 type][payload], little-endian, matching

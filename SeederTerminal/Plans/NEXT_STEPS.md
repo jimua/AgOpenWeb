@@ -50,16 +50,16 @@ Goal: `npm run build` + `dotnet run` Seeder Desktop is the normal cabin loop.
 - Document in `SeederTerminal.Web/README.md`: **dev** = AgOpenWeb `:5174` + `npm run dev`; **product** = Seeder Desktop only
 - Keep AgOpenWeb `wwwroot` on `:5174` as reference only
 
-### Phase B — Map / guidance visual parity
+### Phase B — Map / guidance visual parity (Done)
 
-Stay in `renderer.ts` + related stores; do not fork WireCodec.
+Stayed in `renderer.ts` + related stores; did not fork WireCodec.
 
-- Config-driven tool/vehicle size (replace hard-coded `toolW = 6`) from Scene/Status/config already on the wire
-- Guidance line styling closer to AgOpenWeb (green line visibility, width in world metres)
-- Section/tool colors: red when working, matching AgOpenWeb section codes
-- Coverage / contour trail if Scene already projects it and it is cabin-useful
+- Config-driven tool/vehicle size (replaces hard-coded `toolW = 6`) from Scene/Status/config already on the wire
+- Guidance line styling matching AgOpenWeb (follow line magenta 1.5m extended, green extra guidelines, purple dashed reference pass, cyan next track, green u-turn)
+- Section/tool colors: matching AgOpenWeb ColorCode palette (0 red off, 1 yellow manual on, 2 green auto on, 3 cyan turning off, 4 orange turning on, 5 gray auto off)
+- Coverage raster / contour trail deferred: cells and contour strips are not on Scene wire and will be addressed in a dedicated coverage increment
 - Optional: light perspective / pitch later — only after top-down parity feels solid
-- Keep pose buffer (~130 ms) as the motion model; tune only if Tick rate changes
+- Kept pose buffer (~130 ms) as the motion model; tune only if Tick rate changes
 
 ### Phase C — Product UX beyond Main (after A–B)
 
@@ -95,7 +95,7 @@ Today: widgets use `seederSim.ts`. Core has `ISeederTelemetrySource` registered 
 ## Phase checklist
 
 - [x] Phase A — Desktop product path
-- [ ] Phase B — Map / guidance visual parity
+- [x] Phase B — Map / guidance visual parity (coverage deferred: not on Scene wire)
 - [ ] Phase C — Product UX beyond Main
 - [ ] Phase D — Android product head
 - [ ] Phase E — Seeder telemetry path
