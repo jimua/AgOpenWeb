@@ -38,10 +38,11 @@
   }
   .header {
     background: rgba(73, 164, 161, 0.2);
+    border: 1px solid rgba(73, 164, 161, 0.35);
     border-radius: 8px;
     padding: 8px;
     text-align: center;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }
   .label {
     font-size: 12px;
@@ -53,38 +54,48 @@
     font-weight: 700;
     line-height: 1.1;
   }
+  .list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
   .row {
     display: grid;
-    grid-template-columns: 28px 1fr 44px;
-    gap: 6px;
+    grid-template-columns: 28px 1fr 48px;
+    gap: 8px;
     align-items: center;
-    margin-bottom: 4px;
+    min-height: 28px;
+    padding: 2px 4px;
+    border-radius: 6px;
     font-size: 13px;
   }
   .row span {
-    color: #d37676;
-    font-weight: 600;
+    color: #e06c6c;
+    font-weight: 700;
   }
   .row span.on {
-    color: #66d38d;
+    color: #4ade80;
   }
   .track {
-    height: 14px;
+    height: 16px;
     border-radius: 8px;
-    background: rgba(48, 63, 79, 0.55);
+    background: rgba(25, 36, 50, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     overflow: hidden;
   }
   .fill {
     height: 100%;
-    background: rgba(91, 74, 74, 0.5);
+    background: rgba(180, 80, 80, 0.45);
     border-radius: 8px;
+    transition: width 0.2s, background 0.2s;
   }
   .fill.on {
-    background: #59c87a;
+    background: linear-gradient(90deg, #3d8fd4, #3ecf7a);
   }
   .pct {
     text-align: right;
     color: var(--text) !important;
+    font-weight: 700;
     font-variant-numeric: tabular-nums;
   }
 </style>

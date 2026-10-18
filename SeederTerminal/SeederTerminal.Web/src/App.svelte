@@ -3,9 +3,13 @@
   import { isLoading, _ } from 'svelte-i18n'
   import './lib/i18n'
   import { setLanguage } from './lib/i18n'
-  import { startRemote, stopRemote, connState } from './lib/remote/session'
+  import { startRemote, stopRemote, connState, currentPage } from './lib/remote/session'
   import { startSeederSimulation, stopSeederSimulation } from './lib/stores/seederSim'
   import MapCanvas from './lib/components/MapCanvas.svelte'
+  import Drawer from './lib/components/Drawer.svelte'
+  import ProgramPage from './lib/pages/ProgramPage.svelte'
+  import VehiclePage from './lib/pages/VehiclePage.svelte'
+  import FieldPage from './lib/pages/FieldPage.svelte'
   import SpeedWidget from './lib/components/SpeedWidget.svelte'
   import SeedRateWidget from './lib/components/SeedRateWidget.svelte'
   import SingulationWidget from './lib/components/SingulationWidget.svelte'
@@ -42,8 +46,15 @@
 
 {#if $isLoading}
   <div class="boot">Loading…</div>
+{:else if $currentPage === 'program'}
+  <ProgramPage />
+{:else if $currentPage === 'vehicle'}
+  <VehiclePage />
+{:else if $currentPage === 'field'}
+  <FieldPage />
 {:else}
   <MapCanvas />
+  <Drawer />
 
   <header class="topbar">
     <div class="brand">{$_('app.title')}</div>

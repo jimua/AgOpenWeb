@@ -1,17 +1,32 @@
 import { writable, derived, get } from 'svelte/store'
 import { createRemoteTransport } from './transport.js'
-import type { Scene, Tick, StatusBar, ConnState, Config } from './types'
+import type {
+  Scene,
+  Tick,
+  StatusBar,
+  ConnState,
+  Config,
+  Profiles,
+  FieldOps,
+  AgShare,
+  PageType,
+} from './types'
 import { pushTickPose, clearPoseBuffer } from '../map/poseBuffer'
+
+export const currentPage = writable<PageType>('main')
 
 export const scene = writable<Scene | null>(null)
 export const tick = writable<Tick | null>(null)
 export const config = writable<Config | null>(null)
+export const profiles = writable<Profiles | null>(null)
+export const fieldOps = writable<FieldOps | null>(null)
+export const agShare = writable<AgShare | null>(null)
 export const statusBar = writable<StatusBar | null>(null)
 export const connState = writable<ConnState>('connecting.')
 export const clientId = writable<string | null>(null)
 
 export const speedKph = derived([tick, statusBar], ([$tick, $status]) => {
-  if ($status?.simEnabled) return $status.simSpeedKph
+  if ($status?.simEnabled) return $status.simSpeedKph ?? 0
   const ms = $tick?.pose.speed ?? 0
   return ms * 3.6
 })
@@ -31,6 +46,9 @@ export function startRemote() {
       pushTickPose(t)
     },
     onConfig: (c: Config) => config.set(c),
+    onProfiles: (p: Profiles) => profiles.set(p),
+    onFieldOps: (f: FieldOps) => fieldOps.set(f),
+    onAgShare: (a: AgShare) => agShare.set(a),
     onStatusBar: (s: StatusBar) => statusBar.set(s),
     onHello: (id: string) => clientId.set(id),
     onStatus: (s: string) => {

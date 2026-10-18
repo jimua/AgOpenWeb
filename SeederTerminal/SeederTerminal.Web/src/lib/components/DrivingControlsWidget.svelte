@@ -3,31 +3,34 @@
   import { tick, sendCommand } from '../remote/session'
 
   let op = $derived($tick?.op)
-  let contourLocal = $state(false)
 
   function toggleMaster() {
     sendCommand('section.master')
-  }
-  function toggleAuto() {
-    sendCommand('section.auto')
   }
   function toggleManual() {
     sendCommand('section.manual')
   }
   function toggleContour() {
-    contourLocal = !contourLocal
+    sendCommand('contour.toggle')
   }
 </script>
 
 <div class="widget">
   <div class="label">{$_('driving')}</div>
   <div class="grid">
-    <button class:active={op?.sectionManual || op?.sectionAuto} onclick={toggleMaster}>
+    <button class:active={op?.contour} onclick={toggleContour}>
+      {$_('contour')}
+    </button>
+    <button class:active={op?.sectionManual} onclick={toggleManual}>
+      {$_('manual')}
+    </button>
+    <button
+      class="master-btn"
+      class:active={op?.sectionManual || op?.sectionAuto}
+      onclick={toggleMaster}
+    >
       {$_('master')}
     </button>
-    <button class:active={op?.sectionAuto} onclick={toggleAuto}>{$_('auto')}</button>
-    <button class:active={op?.sectionManual} onclick={toggleManual}>{$_('manual')}</button>
-    <button class:active={contourLocal} onclick={toggleContour}>{$_('contour')}</button>
   </div>
 </div>
 
@@ -52,6 +55,9 @@
     grid-template-columns: 1fr 1fr;
     gap: 8px;
   }
+  .master-btn {
+    grid-column: span 2;
+  }
   button {
     min-height: 48px;
     border-radius: 10px;
@@ -60,6 +66,8 @@
     color: var(--text);
     font-weight: 650;
     font-size: 14px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
   }
   button.active {
     background: #2a6aad;

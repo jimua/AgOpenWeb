@@ -61,7 +61,7 @@ Stayed in `renderer.ts` + related stores; did not fork WireCodec.
 - Optional: light perspective / pitch later — only after top-down parity feels solid
 - Kept pose buffer (~130 ms) as the motion model; tune only if Tick rate changes
 
-### Phase C — Product UX beyond Main (after A–B)
+### Phase C — Product UX beyond Main (Done)
 
 - Drawer stubs → Program / Vehicle / Field pages when a cabin workflow needs them
 - Widget polish (layout, hit targets, night readability) without a full theme system yet
@@ -96,7 +96,7 @@ Today: widgets use `seederSim.ts`. Core has `ISeederTelemetrySource` registered 
 
 - [x] Phase A — Desktop product path
 - [x] Phase B — Map / guidance visual parity (coverage deferred: not on Scene wire)
-- [ ] Phase C — Product UX beyond Main
+- [x] Phase C — Product UX beyond Main
 - [ ] Phase D — Android product head
 - [ ] Phase E — Seeder telemetry path
 

@@ -54,32 +54,169 @@ export type Tick = {
   hostMs: number
 }
 
+export type VehicleConfig = {
+  name?: string
+  type?: number
+  hitchType?: number
+  hitchLength?: number
+  wheelbase?: number
+  trackWidth?: number
+  antennaPivot?: number
+  antennaHeight?: number
+  antennaOffset?: number
+}
+
+export type ToolConfig = {
+  type?: number
+  hitchType?: number
+  hitchLength?: number
+  trailingHitchLength?: number
+  tankTrailingHitchLength?: number
+  length?: number
+  lookAheadOn?: number
+  lookAheadOff?: number
+  turnOffDelay?: number
+  offset?: number
+  overlap?: number
+  trailingToolToPivotLength?: number
+  isSectionsNotZones?: boolean
+  numSections?: number
+  defaultSectionWidth?: number
+  sectionWidths?: number[]
+  zones?: number
+  zoneRanges?: number[]
+  isMultiColoredSections?: boolean
+  sectionColors?: number[]
+  singleCoverageColor?: number
+  isSectionOffWhenOut?: boolean
+  isHeadlandSectionControl?: boolean
+  minCoverage?: number
+  slowSpeedCutoff?: number
+  coverageMargin?: number
+  isWorkSwitchEnabled?: boolean
+  isWorkSwitchActiveLow?: boolean
+  isWorkSwitchManualSections?: boolean
+  isSteerSwitchEnabled?: boolean
+  isSteerSwitchManualSections?: boolean
+  totalWidth?: number
+}
+
+export type DisplayConfig = {
+  gridVisible?: boolean
+  fieldTextureVisible?: boolean
+  fieldTextureMoveable?: boolean
+  svennArrowVisible?: boolean
+  headlandDistanceVisible?: boolean
+  lineSmoothEnabled?: boolean
+  autoDayNight?: boolean
+  hardwareMessagesEnabled?: boolean
+  extraGuidelines?: boolean
+  extraGuidelinesCount?: number
+  resolutionLabel?: string
+  uTurnButtonVisible?: boolean
+  lateralButtonVisible?: boolean
+  autoSteerSound?: boolean
+  uTurnSound?: boolean
+  hydraulicSound?: boolean
+  sectionsSound?: boolean
+  keyboardEnabled?: boolean
+  startFullscreen?: boolean
+  elevationLogEnabled?: boolean
+  resolutionMultiplier?: number
+  isDayMode?: boolean
+}
+
 export type Config = {
-  vehicle?: {
-    trackWidth: number
-    wheelbase: number
-  }
-  tool?: {
-    type: number
-    totalWidth: number
-  }
-  display?: {
-    extraGuidelines: boolean
-    extraGuidelinesCount: number
-  }
+  vehicle?: VehicleConfig
+  tool?: ToolConfig
+  display?: DisplayConfig
+  gps?: Record<string, any>
+  roll?: Record<string, any>
+  uturn?: Record<string, any>
+  tram?: Record<string, any>
+  machine?: Record<string, any>
+  autosteer?: Record<string, any>
+}
+
+export type ProfileItem = {
+  name: string
+  preview: string
+}
+
+export type Profiles = {
+  activeVehicle: string
+  activeTool: string
+  vehicles: ProfileItem[]
+  tools: ProfileItem[]
+}
+
+export type FieldItem = {
+  name: string
+  hasDistance: boolean
+  distanceKm: number
+  areaHa: number
+}
+
+export type JobItem = {
+  fieldName: string
+  taskName: string
+  workType: string
+  status: number
+  lastOpened: string
+  notes: string
+}
+
+export type FieldOps = {
+  fields: FieldItem[]
+  jobs: JobItem[]
+  workTypes: string[]
+  isoFiles: string[]
+  kmlFiles: string[]
+  activeField: string
+}
+
+export type AgShareLocalField = {
+  name: string
+  hasBoundary: boolean
+}
+
+export type AgShareCloudField = {
+  id: string
+  name: string
+  areaHa: number
+}
+
+export type AgShare = {
+  serverUrl: string
+  apiKey: string
+  enabled: boolean
+  status: string
+  busy: boolean
+  localFields: AgShareLocalField[]
+  cloudFields: AgShareCloudField[]
 }
 
 export type StatusBar = {
-  fixQuality: number
-  fixText: string
-  age: number
-  sats: number
-  isMetric: boolean
-  gpsOk: boolean
-  jobName: string
-  workedAreaSqM: number
-  simEnabled: boolean
-  simSpeedKph: number
+  fixQuality?: number
+  fixText?: string
+  age?: number
+  sats?: number
+  isMetric?: boolean
+  gpsOk?: boolean
+  imuOk?: boolean
+  autoSteerOk?: boolean
+  machineOk?: boolean
+  jobName?: string
+  workedAreaSqM?: number
+  simEnabled?: boolean
+  simSpeedKph?: number
+  simSteerAngle?: number
+  sim10x?: boolean
+  unsavedCoveragePrompt?: boolean
+  driftEasting?: number
+  driftNorthing?: number
 }
 
 export type ConnState = 'connecting.' | 'connected' | 'disconnected' | 'error' | string
+
+export type PageType = 'main' | 'program' | 'vehicle' | 'field'
