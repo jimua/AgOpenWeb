@@ -2,14 +2,25 @@
     // Use IntelliSense to learn about possible attributes.
     // Hover to view descriptions of existing attributes.
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": ".NET Core Attach",
-            "type": "coreclr",
-            "request": "attach"
-        }
-
-
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "AgOpenWeb Desktop",
+      "type": "coreclr",
+      "request": "launch",
+      "program": "${workspaceFolder}/Platforms/AgOpenWeb.Desktop/bin/Debug/net10.0/AgOpenWeb.Desktop.exe",
+      "cwd": "${workspaceFolder}/Platforms/AgOpenWeb.Desktop",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "SeederTerminal Desktop",
+      "type": "coreclr",
+      "request": "launch",
+      "program": "${workspaceFolder}/SeederTerminal/SeederTerminal.Desktop/bin/Debug/net10.0/SeederTerminal.Desktop.exe",
+      "cwd": "${workspaceFolder}/SeederTerminal/SeederTerminal.Desktop",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    }
+  ]
 }
