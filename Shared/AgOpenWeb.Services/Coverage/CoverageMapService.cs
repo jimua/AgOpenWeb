@@ -465,10 +465,11 @@ public class CoverageMapService : ICoverageMapService
         double maxN = Math.Max(Math.Max(p0.N, p1.N), Math.Max(p2.N, p3.N));
 
         // Convert to cell coordinates
-        int cellMinE = (int)Math.Floor(minE / BITMAP_CELL_SIZE);
-        int cellMaxE = (int)Math.Floor(maxE / BITMAP_CELL_SIZE);
-        int cellMinN = (int)Math.Floor(minN / BITMAP_CELL_SIZE);
-        int cellMaxN = (int)Math.Floor(maxN / BITMAP_CELL_SIZE);
+        double inflate = BITMAP_CELL_SIZE / 2.0;
+        int cellMinE = (int)Math.Floor((minE - inflate) / BITMAP_CELL_SIZE);
+        int cellMaxE = (int)Math.Floor((maxE + inflate) / BITMAP_CELL_SIZE);
+        int cellMinN = (int)Math.Floor((minN - inflate) / BITMAP_CELL_SIZE);
+        int cellMaxN = (int)Math.Floor((maxN + inflate) / BITMAP_CELL_SIZE);
 
         // Mark all cells in bounding box that are inside the quad
         for (int ce = cellMinE; ce <= cellMaxE; ce++)
@@ -481,8 +482,7 @@ public class CoverageMapService : ICoverageMapService
 
                 // Two-triangle decomposition: handles self-intersecting bowties
                 // that occur when inner section edges reverse during sharp turns.
-                if (IsPointInTriangle(cellCenterE, cellCenterN, p0, p1, p2)
-                    || IsPointInTriangle(cellCenterE, cellCenterN, p0, p2, p3))
+                if (IsPointInInflatedQuad(cellCenterE, cellCenterN, p0, p1, p2, p3, inflate))
                 {
                     if (MarkCellCovered(ce, cn, zoneIndex))
                     {
@@ -534,6 +534,37 @@ public class CoverageMapService : ICoverageMapService
         bool hasPos = (d0 > 0) || (d1 > 0) || (d2 > 0);
 
         return !(hasNeg && hasPos);
+    }
+
+    private static bool IsPointInInflatedQuad(double px, double py,
+        (double E, double N) p0, (double E, double N) p1,
+        (double E, double N) p2, (double E, double N) p3,
+        double radius)
+    {
+        if (IsPointInTriangle(px, py, p0, p1, p2)
+            || IsPointInTriangle(px, py, p0, p2, p3))
+            return true;
+
+        double radiusSquared = radius * radius;
+        return DistanceSquaredToSegment(px, py, p0, p1) <= radiusSquared
+            || DistanceSquaredToSegment(px, py, p1, p2) <= radiusSquared
+            || DistanceSquaredToSegment(px, py, p2, p3) <= radiusSquared
+            || DistanceSquaredToSegment(px, py, p3, p0) <= radiusSquared;
+    }
+
+    private static double DistanceSquaredToSegment(double px, double py,
+        (double E, double N) a, (double E, double N) b)
+    {
+        double dx = b.E - a.E;
+        double dy = b.N - a.N;
+        double lengthSquared = dx * dx + dy * dy;
+        if (lengthSquared <= double.Epsilon)
+            return (px - a.E) * (px - a.E) + (py - a.N) * (py - a.N);
+
+        double t = Math.Clamp(((px - a.E) * dx + (py - a.N) * dy) / lengthSquared, 0, 1);
+        double nearestE = a.E + t * dx;
+        double nearestN = a.N + t * dy;
+        return (px - nearestE) * (px - nearestE) + (py - nearestN) * (py - nearestN);
     }
 
     /// <summary>
@@ -1650,10 +1681,11 @@ public class CoverageMapService : ICoverageMapService
         double minN = Math.Min(Math.Min(n0, n1), Math.Min(n2, n3));
         double maxN = Math.Max(Math.Max(n0, n1), Math.Max(n2, n3));
 
-        int cellMinE = (int)Math.Floor(minE / BITMAP_CELL_SIZE);
-        int cellMaxE = (int)Math.Floor(maxE / BITMAP_CELL_SIZE);
-        int cellMinN = (int)Math.Floor(minN / BITMAP_CELL_SIZE);
-        int cellMaxN = (int)Math.Floor(maxN / BITMAP_CELL_SIZE);
+        double inflate = BITMAP_CELL_SIZE / 2.0;
+        int cellMinE = (int)Math.Floor((minE - inflate) / BITMAP_CELL_SIZE);
+        int cellMaxE = (int)Math.Floor((maxE + inflate) / BITMAP_CELL_SIZE);
+        int cellMinN = (int)Math.Floor((minN - inflate) / BITMAP_CELL_SIZE);
+        int cellMaxN = (int)Math.Floor((maxN + inflate) / BITMAP_CELL_SIZE);
 
         int count = 0;
         for (int ce = cellMinE; ce <= cellMaxE; ce++)
@@ -1663,8 +1695,7 @@ public class CoverageMapService : ICoverageMapService
                 double cellCenterE = (ce + 0.5) * BITMAP_CELL_SIZE;
                 double cellCenterN = (cn + 0.5) * BITMAP_CELL_SIZE;
 
-                if (IsPointInTriangle(cellCenterE, cellCenterN, p0, p1, p2)
-                    || IsPointInTriangle(cellCenterE, cellCenterN, p0, p2, p3))
+                if (IsPointInInflatedQuad(cellCenterE, cellCenterN, p0, p1, p2, p3, inflate))
                 {
                     if (MarkCellCovered(ce, cn, 0))
                     {

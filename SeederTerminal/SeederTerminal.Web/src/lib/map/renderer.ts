@@ -135,6 +135,8 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
   let coverage: any = null
   let coverageVersion = -1
   let coverageEdgePath: any = null
+  let coverageEdgePaint: any = null
+  let coverageEdgeRgb = 0x98fb98
   const sectionPaints: any[] = []
   let disposed = false
 
@@ -337,6 +339,7 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
         if (value !== lastRgb) {
           coverage.paint.setColor(CK.Color((value >> 16) & 255, (value >> 8) & 255, value & 255, ((value >>> 24) & 255) / 255))
           lastRgb = value
+          coverageEdgeRgb = value & 0xffffff
         }
         targetCanvas.drawRect(CK.XYWHRect(x, y, 1, 1), coverage.paint)
         budget--
@@ -389,9 +392,15 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
       coverageEdgePath = { version: state.edgeVersion, path: CK.Path.MakeFromCmds(cmds) }
     }
     if (!coverageEdgePath.path) return
-    const paint = stroke(152, 251, 152, 1, Math.max(1 / scale, 0.6))
-    sk.drawPath(coverageEdgePath.path, paint)
-    paint.delete()
+    if (!coverageEdgePaint) coverageEdgePaint = stroke(152, 251, 152, 1, 0.6)
+    coverageEdgePaint.setColor(CK.Color(
+      (coverageEdgeRgb >> 16) & 255,
+      (coverageEdgeRgb >> 8) & 255,
+      coverageEdgeRgb & 255,
+      1,
+    ))
+    coverageEdgePaint.setStrokeWidth(Math.max(1 / scale, 0.6))
+    sk.drawPath(coverageEdgePath.path, coverageEdgePaint)
   }
 
   const draw = (scene: Scene | null, tick: Tick | null, config: Config | null, cam: MapCamera) => {
@@ -704,6 +713,8 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
     coverage = null
     safeDelete(coverageEdgePath?.path)
     coverageEdgePath = null
+    safeDelete(coverageEdgePaint)
+    coverageEdgePaint = null
     for (const paint of sectionPaints) safeDelete(paint)
     sectionPaints.length = 0
   }
