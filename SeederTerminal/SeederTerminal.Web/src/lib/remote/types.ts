@@ -220,3 +220,18 @@ export type StatusBar = {
 export type ConnState = 'connecting.' | 'connected' | 'disconnected' | 'error' | string
 
 export type PageType = 'main' | 'program' | 'vehicle' | 'field'
+
+export type SeederSectionDto = {
+  index: number
+  isOn: boolean
+  singulationPercent: number
+  seedRateActual: number
+}
+
+export type SeederTelemetryDto = {
+  setpoint: number
+  actual: number
+  totalSingulation: number
+  count: number
+  sections: SeederSectionDto[]
+}

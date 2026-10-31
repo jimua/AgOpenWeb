@@ -99,6 +99,15 @@ public sealed class RemoteServerHost
     }
     private Func<(double Pitch, double Zoom)?>? _viewPrefsProvider;
 
+    /// <summary>Host-supplied custom WebSocket frame provider (e.g. Seeder telemetry).
+    /// Read every ~2 Hz status tick and sent in the seed. Set before or after <see cref="StartAsync"/>.</summary>
+    public Func<byte[]?>? ExtraFrameProvider
+    {
+        get => _broadcaster?.ExtraFrameProvider;
+        set { _extraFrameProvider = value; if (_broadcaster is not null) _broadcaster.ExtraFrameProvider = value; }
+    }
+    private Func<byte[]?>? _extraFrameProvider;
+
     /// <summary>Host-supplied projector for the Field Builder Headland-tab segment list
     /// (VM-owned, rides the Scene frame). Set after <see cref="StartAsync"/>.</summary>
     public Func<IReadOnlyList<HeadlandSegInfoDto>>? HeadlandSegsProvider
@@ -183,6 +192,7 @@ public sealed class RemoteServerHost
         _broadcaster.RecordedPathProvider = _recordedPathProvider;
         _broadcaster.BoundaryProvider = _boundaryProvider;
         _broadcaster.ViewPrefsProvider = _viewPrefsProvider;
+        _broadcaster.ExtraFrameProvider = _extraFrameProvider;
         _broadcaster.Projector.HeadlandSegsProvider = _headlandSegsProvider;
         _broadcaster.Projector.TramLinesProvider = _tramLinesProvider;
 

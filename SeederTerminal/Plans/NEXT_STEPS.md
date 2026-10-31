@@ -6,7 +6,7 @@ Spike succeeded:
 
 - Svelte Main on Vite `:5175` with CanvasKit map, pose interpolation, ground texture, grid, overlays, EN/UK
 - AgOpenWeb `RemoteServerHost` / `WebBackend` accept `port` + `uiContentRoot`
-- [`SeederTerminal.Desktop`](../SeederTerminal.Desktop/) hosts WebBackend on **5175** + WebView; Core `ISeederTelemetrySource` exists but UI still simulates client-side
+- [`SeederTerminal.Desktop`](../SeederTerminal.Desktop/) hosts WebBackend on **5175** + WebView; Core `ISeederTelemetrySource` streams live telemetry to the UI over WS type 22 (with client sim as Vite-dev fallback)
 - Android is contract-only ([`README.md`](../SeederTerminal.Android/README.md))
 
 Day-to-day spike still often uses **AgOpenWeb Desktop `:5174` + Vite proxy**. Product path is **one process**: Seeder Desktop serves `dist/` + `/ws` + vendor assets.
@@ -67,16 +67,15 @@ Stayed in `renderer.ts` + related stores; did not fork WireCodec.
 - Widget polish (layout, hit targets, night readability) without a full theme system yet
 - i18n coverage for new strings (EN + UK)
 
-### Phase D — Android product head
+
+### Phase D — Seeder telemetry path (Done)
+
+- Drive Seeder telemetry from **Core** (over a Seeder-owned WS extension type 22) so Desktop and future Android share one source
+- SPA widgets subscribe to that feed; keep client sim only as a Vite-dev fallback when no host telemetry is present
+
+### Phase E — Android product head
 
 Mirror `Platforms/AgOpenWeb.Android`: foreground `BackendService` + `NativeWebView` → `http://127.0.0.1:5175/`, unpack/serve Vite `dist` as `uiContentRoot`. Until then, LAN browser against Desktop remains the cabin Android workaround.
-
-### Phase E — Seeder telemetry path
-
-Today: widgets use `seederSim.ts`. Core has `ISeederTelemetrySource` registered in Desktop but unused by the SPA.
-
-- Drive Seeder telemetry from **Core** (or project samples onto Status/Tick / a small Seeder-owned WS extension) so Desktop and future Android share one source
-- SPA widgets subscribe to that feed; keep client sim only as a Vite-dev fallback when no host telemetry is present
 
 ### Explicitly later
 
@@ -97,8 +96,8 @@ Today: widgets use `seederSim.ts`. Core has `ISeederTelemetrySource` registered 
 - [x] Phase A — Desktop product path
 - [x] Phase B — Map / guidance visual parity (coverage deferred: not on Scene wire)
 - [x] Phase C — Product UX beyond Main
-- [ ] Phase D — Android product head
-- [ ] Phase E — Seeder telemetry path
+- [x] Phase D — Seeder telemetry path
+- [ ] Phase E — Android product head
 
 ## Run modes
 

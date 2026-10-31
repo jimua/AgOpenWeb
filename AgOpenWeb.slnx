@@ -24,6 +24,7 @@
     <Project Path="Tests/AgOpenWeb.Models.Tests/AgOpenWeb.Models.Tests.csproj" />
     <Project Path="Tests/AgOpenWeb.Services.Tests/AgOpenWeb.Services.Tests.csproj" />
     <Project Path="Tests/AgOpenWeb.ViewModels.Tests/AgOpenWeb.ViewModels.Tests.csproj" />
+    <Project Path="Tests/SeederTerminal.Core.Tests/SeederTerminal.Core.Tests.csproj" />
   </Folder>
   <Project Path="Platforms/AgOpenWeb.Desktop/AgOpenWeb.Desktop.csproj" />
   <Project Path="Platforms/AgOpenWeb.iOS/AgOpenWeb.iOS.csproj" />

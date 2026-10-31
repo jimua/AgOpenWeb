@@ -50,6 +50,9 @@ public sealed class MapBroadcaster : IAsyncDisposable
     // Host-supplied persisted web-camera view (pitch radians, zoom px/m). Read once
     // per connection and sent in the seed so the client restores its last tilt+zoom.
     public Func<(double Pitch, double Zoom)?>? ViewPrefsProvider { get; set; }
+    // Host-supplied extra WebSocket frame provider (e.g. Seeder telemetry). Read every
+    // ~2 Hz status tick and sent in the seed so connected clients get live metrics.
+    public Func<byte[]?>? ExtraFrameProvider { get; set; }
     private volatile bool _coverageInitSent;
     private double _lastCellSize;
     // Last coverage grid announced to clients (origin + dims). A change here with the SAME cell
@@ -97,6 +100,8 @@ public sealed class MapBroadcaster : IAsyncDisposable
         };
         if (ViewPrefsProvider?.Invoke() is { } vp)
             frames.Add(WireCodec.EncodeViewPrefs(vp.Pitch, vp.Zoom));
+        if (ExtraFrameProvider?.Invoke() is { } extra)
+            frames.Add(extra);
         if (_coverageProjector.BuildInit() is { } init)
         {
             frames.Add(WireCodec.EncodeCoverageInit(init, reset: true)); // fresh client → rebuild from the seed snapshot
@@ -320,6 +325,8 @@ public sealed class MapBroadcaster : IAsyncDisposable
                     _statusTick = 0;
                     await _ws.BroadcastAsync(WireCodec.EncodeStatus(_projector.BuildStatus()), ct)
                         .ConfigureAwait(false);
+                    if (ExtraFrameProvider?.Invoke() is { } extra)
+                        await _ws.BroadcastAsync(extra, ct).ConfigureAwait(false);
                 }
 
                 // Steer Wizard (host-driven): while the remote wizard is open, project

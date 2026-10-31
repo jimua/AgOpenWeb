@@ -10,8 +10,10 @@ import type {
   FieldOps,
   AgShare,
   PageType,
+  SeederTelemetryDto,
 } from './types'
 import { pushTickPose, clearPoseBuffer } from '../map/poseBuffer'
+import { applyHostTelemetry } from '../stores/seederSim'
 
 export const currentPage = writable<PageType>('main')
 
@@ -50,6 +52,7 @@ export function startRemote() {
     onFieldOps: (f: FieldOps) => fieldOps.set(f),
     onAgShare: (a: AgShare) => agShare.set(a),
     onStatusBar: (s: StatusBar) => statusBar.set(s),
+    onSeederTelemetry: (d: SeederTelemetryDto) => applyHostTelemetry(d),
     onHello: (id: string) => clientId.set(id),
     onStatus: (s: string) => {
       connState.set(s)

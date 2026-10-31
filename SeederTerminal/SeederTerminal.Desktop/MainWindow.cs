@@ -117,6 +117,10 @@ public sealed class MainWindow : Window
             Port,
             uiRoot).GetAwaiter().GetResult();
         var remoteServer = backend.Server;
+        SeederTelemetryWiring.Attach(
+            remoteServer,
+            sp.GetRequiredService<ISeederTelemetrySource>(),
+            sp.GetRequiredService<ISectionControlService>());
 
         var configService = sp.GetRequiredService<IConfigurationService>();
         var persistentState = sp.GetRequiredService<IPersistentStateService>();
