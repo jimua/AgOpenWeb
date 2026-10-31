@@ -13,6 +13,7 @@ import type {
   SeederTelemetryDto,
 } from './types'
 import { pushTickPose, clearPoseBuffer } from '../map/poseBuffer'
+import { clearCoverageState, queueCoverageCells, setCoverageEdges, setCoverageInit, type CoverageInit } from '../map/coverageState'
 import { applyHostTelemetry } from '../stores/seederSim'
 
 export const currentPage = writable<PageType>('main')
@@ -47,6 +48,12 @@ export function startRemote() {
       tick.set(t)
       pushTickPose(t)
     },
+    onCoverageInit: (init: CoverageInit) => {
+      setCoverageInit(init)
+      if (init.width > 4096 || init.height > 4096) transport?.send('display.capResolution|2.5')
+    },
+    onCoverageCells: ({ cells }: { cells: Int32Array }) => queueCoverageCells(cells),
+    onCoverageEdge: setCoverageEdges,
     onConfig: (c: Config) => config.set(c),
     onProfiles: (p: Profiles) => profiles.set(p),
     onFieldOps: (f: FieldOps) => fieldOps.set(f),
@@ -81,6 +88,7 @@ export function stopRemote() {
   transport?.stop()
   transport = null
   clearPoseBuffer()
+  clearCoverageState()
 }
 
 export function getConnSnapshot() {

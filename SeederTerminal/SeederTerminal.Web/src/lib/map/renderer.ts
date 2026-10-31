@@ -6,6 +6,7 @@
 
 import type { Scene, Tick, Config, Vec2 } from '../remote/types'
 import { sampleRenderPose, sampleRenderTool } from './poseBuffer'
+import { getCoverageState } from './coverageState'
 
 declare global {
   interface Window {
@@ -119,6 +120,7 @@ export type MapRenderer = {
 
 export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): MapRenderer {
   let surface: any = null
+  let grCtx: any = null
   let dpr = 1
   let vw = 1
   let vh = 1
@@ -130,6 +132,10 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
 
   let tractorImg: HTMLImageElement | null = null
   let skTractor: any = null
+  let coverage: any = null
+  let coverageVersion = -1
+  let coverageEdgePath: any = null
+  const sectionPaints: any[] = []
   let disposed = false
 
   const safeDelete = (obj: any) => {
@@ -165,8 +171,14 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
 
   const recreate = () => {
     if (disposed) return
-    surface?.dispose?.()
-    surface = CK.MakeWebGLCanvasSurface(canvas)
+    safeDelete(surface)
+    surface = null
+    if (!grCtx) {
+      const handle = CK.GetWebGLContext(canvas)
+      if (handle) grCtx = CK.MakeWebGLContext(handle)
+    }
+    if (grCtx) surface = CK.MakeOnScreenGLSurface(grCtx, canvas.width, canvas.height, null)
+    if (!surface) surface = CK.MakeWebGLCanvasSurface(canvas)
   }
 
   const resize = (cssW: number, cssH: number, devicePixelRatio: number) => {
@@ -257,6 +269,131 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
   const lineW = (metres: number, pxPerM: number) =>
     Math.min(Math.max(metres * pxPerM, 1), 3.5) / pxPerM
 
+  const ensureCoverage = (state: ReturnType<typeof getCoverageState>) => {
+    const init = state.grid
+    if (!init) {
+      if (coverage) {
+        safeDelete(coverage.image)
+        safeDelete(coverage.target)
+        safeDelete(coverage.paint)
+        coverage = null
+      }
+      coverageVersion = -1
+      return
+    }
+    if (coverageVersion === init.version) return
+    const old = coverage
+    const make = () => {
+      let target: any = null
+      if (grCtx && init.width <= 4096 && init.height <= 4096) {
+        try {
+          target = CK.MakeRenderTarget(grCtx, init.width, init.height)
+          target?.getCanvas().clear(CK.TRANSPARENT)
+        } catch {
+          target = null
+        }
+      }
+      const paint = target ? new CK.Paint() : null
+      if (paint) {
+        paint.setStyle(CK.PaintStyle.Fill)
+        paint.setAntiAlias(false)
+        paint.setBlendMode(CK.BlendMode.Src)
+      }
+      return { init, target, paint, image: null, dirty: !!target }
+    }
+    coverage = make()
+    if (old && init.reanchor && old.target && coverage.target) {
+      old.target.flush()
+      const image = old.target.makeImageSnapshot()
+      const dx = init.offsetX
+      const dy = init.offsetY
+      coverage.target.getCanvas().drawImageOptions(image, dx, dy, CK.FilterMode.Nearest, CK.MipmapMode.None, null)
+      image.delete()
+      coverage.target.flush()
+    }
+    safeDelete(old?.image)
+    safeDelete(old?.target)
+    safeDelete(old?.paint)
+    coverageVersion = init.version
+  }
+
+  const drawCoverage = (sk: any) => {
+    const state = getCoverageState()
+    ensureCoverage(state)
+    if (!coverage?.target) return
+    const cutoff = performance.now() - state.renderDelay
+    const targetCanvas = coverage.target.getCanvas()
+    let budget = 40000
+    let drained = 0
+    let drawn = 0
+    let lastRgb = -1
+    for (const batch of state.pending) {
+      if (batch.t > cutoff || budget <= 0) break
+      let i = batch.off
+      for (; i + 2 < batch.cells.length && budget > 0; i += 3) {
+        const x = batch.cells[i]
+        const y = batch.cells[i + 1]
+        const value = batch.cells[i + 2] >>> 0
+        if (value !== lastRgb) {
+          coverage.paint.setColor(CK.Color((value >> 16) & 255, (value >> 8) & 255, value & 255, ((value >>> 24) & 255) / 255))
+          lastRgb = value
+        }
+        targetCanvas.drawRect(CK.XYWHRect(x, y, 1, 1), coverage.paint)
+        budget--
+        drawn++
+      }
+      if (i + 2 < batch.cells.length) {
+        batch.off = i
+        break
+      }
+      drained++
+    }
+    if (drained) {
+      state.pending.splice(0, drained)
+    }
+    if (drawn) {
+      coverage.target.flush()
+      coverage.dirty = true
+    }
+    if (coverage.dirty || !coverage.image) {
+      safeDelete(coverage.image)
+      coverage.image = coverage.target.makeImageSnapshot()
+      coverage.dirty = false
+    }
+    if (coverage.image) {
+      const cs = coverage.init.cellSize
+      sk.drawImageRectOptions(
+        coverage.image,
+        CK.LTRBRect(0, 0, coverage.init.width, coverage.init.height),
+        CK.LTRBRect(coverage.init.originE, coverage.init.originN,
+          coverage.init.originE + coverage.init.width * cs,
+          coverage.init.originN + coverage.init.height * cs),
+        CK.FilterMode.Linear,
+        CK.MipmapMode.None,
+        null,
+      )
+    }
+  }
+
+  const drawCoverageEdge = (sk: any, scale: number) => {
+    const state = getCoverageState()
+    if (!state.edges.length) return
+    if (!coverageEdgePath || coverageEdgePath.version !== state.edgeVersion) {
+      safeDelete(coverageEdgePath?.path)
+      const cmds: number[] = []
+      for (const line of state.edges) {
+        if (line.length < 2) continue
+        cmds.push(CK.MOVE_VERB, line[0].e, line[0].n)
+        for (let i = 1; i < line.length; i++) cmds.push(CK.LINE_VERB, line[i].e, line[i].n)
+      }
+      coverageEdgePath = { version: state.edgeVersion, path: CK.Path.MakeFromCmds(cmds) }
+    }
+    if (!coverageEdgePath.path) return
+    const paint = stroke(152, 251, 152, 1, Math.max(1 / scale, 0.6))
+    sk.drawPath(coverageEdgePath.path, paint)
+    paint.delete()
+  }
+
   const draw = (scene: Scene | null, tick: Tick | null, config: Config | null, cam: MapCamera) => {
     if (disposed) return
     if (!surface) recreate()
@@ -288,7 +425,11 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
     // 1) Tiled ground texture
     drawGroundTexture(sk, cx, cy, scale)
 
-    // 2) Grid over texture — world-metre strokes like AgOpenWeb drawGridSk
+    // 2) Delayed worked coverage, kept in world metres beneath the vector layers.
+    drawCoverage(sk)
+    drawCoverageEdge(sk, scale)
+
+    // 3) Grid over texture — world-metre strokes like AgOpenWeb drawGridSk
     // (minor/major × gridMult=6). 1/pxPerM-style widths were ~1 CSS px and vanished
     // on the ground texture.
     {
@@ -452,7 +593,12 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
         if (R - L < 0.01) continue
         const code = tick?.sections[i] ?? 0
         const col = SECTION_COLORS[code] ?? SECTION_COLORS[0]
-        const sp = fill(col[0], col[1], col[2], col[3])
+        const paintIndex = code >= 0 && code < SECTION_COLORS.length ? code : 0
+        let sp = sectionPaints[paintIndex]
+        if (!sp) {
+          sp = fill(col[0], col[1], col[2], col[3])
+          sectionPaints[paintIndex] = sp
+        }
         const corners = [
           [L, -depth],
           [R, -depth],
@@ -473,7 +619,6 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
           sk.drawPath(path2, sp)
           path2.delete()
         }
-        sp.delete()
       }
     }
 
@@ -549,12 +694,18 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
     skGround = null
     safeDelete(skTractor)
     skTractor = null
-    try {
-      surface?.dispose?.()
-    } catch {
-      /* ignore */
-    }
+    safeDelete(surface)
     surface = null
+    safeDelete(grCtx)
+    grCtx = null
+    safeDelete(coverage?.image)
+    safeDelete(coverage?.target)
+    safeDelete(coverage?.paint)
+    coverage = null
+    safeDelete(coverageEdgePath?.path)
+    coverageEdgePath = null
+    for (const paint of sectionPaints) safeDelete(paint)
+    sectionPaints.length = 0
   }
 
   return { resize, draw, dispose }

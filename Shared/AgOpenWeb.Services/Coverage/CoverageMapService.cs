@@ -1098,6 +1098,9 @@ public class CoverageMapService : ICoverageMapService
     {
         lock (_coverageLock)
         {
+            // The product has no native bitmap consumer; the web drain is the only
+            // incremental consumer in the headless hosts.
+            _newCells.Clear();
             if (_newCellsServer.Count == 0)
                 return Array.Empty<(int, int, CoverageColor)>();
 
