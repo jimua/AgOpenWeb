@@ -17,63 +17,69 @@
 
 <div class="widget">
   <div class="label">{$_('driving')}</div>
-  <div class="grid">
-    <button class:active={op?.contour} onclick={toggleContour}>
-      {$_('contour')}
-    </button>
-    <button class:active={op?.sectionManual} onclick={toggleManual}>
-      {$_('manual')}
+  <div class="buttons">
+    <button
+      type="button"
+      title={$_(op?.contour ? 'contourOn' : 'contourOff')}
+      aria-label={$_(op?.contour ? 'contourOn' : 'contourOff')}
+      onclick={toggleContour}
+    >
+      <img src={`/icons/${op?.contour ? 'ContourOn' : 'ContourOff'}.png`} alt="" />
     </button>
     <button
-      class="master-btn"
-      class:active={op?.sectionManual || op?.sectionAuto}
+      type="button"
+      title={$_(op?.sectionManual ? 'manualOn' : 'manualOff')}
+      aria-label={$_(op?.sectionManual ? 'manualOn' : 'manualOff')}
+      onclick={toggleManual}
+    >
+      <img src={`/icons/${op?.sectionManual ? 'ManualOn' : 'ManualOff'}.png`} alt="" />
+    </button>
+    <button
+      type="button"
+      title={$_(op?.sectionAuto ? 'autoOn' : 'autoOff')}
+      aria-label={$_(op?.sectionAuto ? 'autoOn' : 'autoOff')}
       onclick={toggleMaster}
     >
-      {$_('master')}
+      <img src={`/icons/${op?.sectionAuto ? 'SectionMasterOn' : 'SectionMasterOff'}.png`} alt="" />
     </button>
   </div>
 </div>
 
 <style>
   .widget {
-    background: var(--panel);
-    border: 1px solid var(--panel-border);
-    border-radius: 12px;
-    padding: 10px 14px;
-    min-width: 200px;
-    backdrop-filter: blur(8px);
+    width: max-content;
+    padding: 8px;
+    background: #cc121820;
+    border-radius: 10px;
   }
   .label {
+    margin-bottom: 6px;
     font-size: 12px;
-    color: var(--text-muted);
     font-weight: 600;
-    text-transform: uppercase;
-    margin-bottom: 8px;
+    color: #dce5ee;
   }
-  .grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-  }
-  .master-btn {
-    grid-column: span 2;
+  .buttons {
+    display: flex;
+    gap: 6px;
   }
   button {
-    min-height: 48px;
-    border-radius: 10px;
-    border: 1px solid var(--panel-border);
-    background: #1c3048;
-    color: var(--text);
-    font-weight: 650;
-    font-size: 14px;
+    width: 56px;
+    height: 56px;
+    padding: 8px;
+    border: 1px solid #4e739a;
+    border-radius: 8px;
+    background: #253a4e;
     cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, transform 0.1s;
   }
-  button.active {
-    background: #2a6aad;
-    border-color: #6ba3d0;
+  button:hover {
+    background: #2f4d67;
   }
   button:active {
-    transform: scale(0.98);
+    background: #3a5d7a;
+  }
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
   }
 </style>
