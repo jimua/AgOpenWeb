@@ -1,18 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
 using System.Threading.Tasks;
 
@@ -147,11 +135,11 @@ public class HardwareConfigStepViewModel : WizardStepViewModel
     protected override void OnLeaving()
     {
         var autoSteer = _configService.Store.AutoSteer;
-        autoSteer.ExternalEnable = ExternalEnable;
-        autoSteer.MotorDriver = MotorDriver;
-        autoSteer.AdConverter = AdConverter;
-        autoSteer.InvertRelays = InvertRelays;
-        autoSteer.DanfossEnabled = DanfossEnabled;
+        if (Touched(nameof(ExternalEnable))) autoSteer.ExternalEnable = ExternalEnable;
+        if (Touched(nameof(MotorDriver))) autoSteer.MotorDriver = MotorDriver;
+        if (Touched(nameof(AdConverter))) autoSteer.AdConverter = AdConverter;
+        if (Touched(nameof(InvertRelays))) autoSteer.InvertRelays = InvertRelays;
+        if (Touched(nameof(DanfossEnabled))) autoSteer.DanfossEnabled = DanfossEnabled;
     }
 
     public override Task<bool> ValidateAsync()

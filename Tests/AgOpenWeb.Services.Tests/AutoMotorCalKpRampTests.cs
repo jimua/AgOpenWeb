@@ -1,7 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2026 AgOpenWeb Contributors
-//
-// Licensed under GNU GPL v3. See LICENSE.md.
+// SPDX-License-Identifier: Apache-2.0
 
 using System.Threading;
 using System.Threading.Tasks;
@@ -56,7 +55,7 @@ public class AutoMotorCalKpRampTests
     private static SteerModuleData ModuleAt(double angleDeg, byte pwm) =>
         new SteerModuleData(
             ActualSteerAngle: angleDeg, ImuHeading: 0, ImuRoll: 0,
-            WorkSwitchActive: false, SteerSwitchActive: true,
+            WorkSwitchActive: false, SteerSwitchActive: false, // bit 1 clear: module steering
             RemoteButtonPressed: false, VwasFusionActive: false,
             PwmDisplay: pwm);
 
@@ -126,6 +125,45 @@ public class AutoMotorCalKpRampTests
     }
 
     [Test]
+    public async Task MotorCal_FoundMinPwm_IsTheSettingAfterward()
+    {
+        // Next right after the ramp's result keeps the MinPWM it found. (The step once saved
+        // it only after a max angle part of its own, which the web wizard never ran.)
+        _store.AutoSteer.ProportionalGain = 12;
+        _store.AutoSteer.MinPwm = 10;
+        var step = CreateStep(kp => kp < 40 ? ModuleAt(0.0, 0) : ModuleAt(2.0, 29));
+        SetActive(step, true);
+
+        await step.RunKpRampAsync();
+        SetActive(step, false); // Next
+
+        Assert.That(step.DetectedMinPwm, Is.EqualTo(29));
+        Assert.That(_store.AutoSteer.MinPwm, Is.EqualTo(29));
+    }
+
+    [Test]
+    public async Task MotorCal_StalledWheels_DoNotSetMinPwmNearTheMaximum()
+    {
+        // The wheels moved past the threshold and then stalled against a load: the PWM read is
+        // near the maximum, and as the minimum it would kick every small correction at full power.
+        _store.AutoSteer.ProportionalGain = 12;
+        _store.AutoSteer.MaxPwm = 180;
+        _store.AutoSteer.MinPwm = 25;
+        var step = CreateStep(kp => kp < 40 ? ModuleAt(0.0, 0) : ModuleAt(2.0, 170));
+        SetActive(step, true);
+
+        await step.RunKpRampAsync();
+        SetActive(step, false); // Next
+
+        Assert.That(step.DetectedMinPwm, Is.EqualTo(170));
+        Assert.That(_store.AutoSteer.MinPwm, Is.EqualTo(25), "a stalled reading is not the setting");
+        Assert.That(step.PhaseResult, Does.Contain("Not saved"));
+    }
+
+    private static void SetActive(AgOpenWeb.ViewModels.Wizards.WizardStepViewModel step, bool active) =>
+        typeof(AgOpenWeb.ViewModels.Wizards.WizardStepViewModel).GetProperty("IsActive")!.SetValue(step, active);
+
+    [Test]
     public async Task MotorCal_NoMotionAtMaxKp_RaisesFailure()
     {
         // Module reports the wheel stationary at every Kp setting —
@@ -176,13 +214,13 @@ public class AutoMotorCalKpRampTests
         // anchor during the ramp (e.g. WAS misconfigured), the wizard
         // must abort early rather than keep ramping Kp.
         //
-        // Simulate: at the very first sample the start anchor reads 0°.
-        // Once the ramp engages (a Kp has been written), the wheel has
-        // shot to 20° — well past the 15° runaway limit.
+        // Simulate: the start anchor reads 0° (the module arms at the
+        // bottom of the ramp, Kp 5). Once the ramp climbs past it, the
+        // wheel has shot to 20° — well past the 15° runaway limit.
         _store.AutoSteer.ProportionalGain = 0;
         var step = CreateStep(kp =>
         {
-            if (kp >= 5) return ModuleAt(angleDeg: 20.0, pwm: 80);
+            if (kp >= 10) return ModuleAt(angleDeg: 20.0, pwm: 80);
             return ModuleAt(0.0, 0);
         });
 

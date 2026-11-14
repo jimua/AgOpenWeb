@@ -1,18 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
 using System.Collections.Generic;
 using AgOpenWeb.Models.Base;
@@ -53,6 +41,17 @@ namespace AgOpenWeb.Models.IsoXml
     /// <summary>
     /// Parsed track/guidance line data from ISO XML file
     /// </summary>
+    /// <summary>
+    /// A vehicle or tool for the ISOXML device description (#110): its name and ISO 11783
+    /// connector (coupling) type, ISOBUS DDI 157 (0 = unknown, 1–10 = the ISO couplings,
+    /// -1 = not available → no connector written).
+    /// </summary>
+    public class IsoXmlDevice
+    {
+        public string Designator { get; set; } = "";
+        public int ConnectorType { get; set; } = -1;
+    }
+
     public class IsoXmlTrack
     {
         /// <summary>

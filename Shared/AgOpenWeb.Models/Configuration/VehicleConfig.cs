@@ -1,18 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
 using System;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -93,6 +81,31 @@ public class VehicleConfig : ObservableObject
     {
         get => _antennaOffset;
         set => SetProperty(ref _antennaOffset, value);
+    }
+
+    // IMU position, same axes as the antenna: pivot = ahead of the rear axle (+), height =
+    // above the ground, offset = right of the centreline (+). Sent to the modules in PGN 247
+    // so a receiver's INS (UM981) or the steer firmware gets the IMU-to-antenna lever arm; a
+    // remote IMU is often mounted low, away from the board (#387). All 0 = not entered.
+    private double _imuPivot = 0.0;
+    public double ImuPivot
+    {
+        get => _imuPivot;
+        set => SetProperty(ref _imuPivot, value);
+    }
+
+    private double _imuHeight = 0.0;
+    public double ImuHeight
+    {
+        get => _imuHeight;
+        set => SetProperty(ref _imuHeight, value);
+    }
+
+    private double _imuOffset = 0.0;
+    public double ImuOffset
+    {
+        get => _imuOffset;
+        set => SetProperty(ref _imuOffset, value);
     }
 
     // Hitch (vehicle): rear axle center -> tractor hitch pin. This is the trailer

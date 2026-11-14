@@ -1,18 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2026 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
 using AgOpenWeb.Models.Base;
 using AgOpenWeb.Models.Track;
@@ -50,6 +38,9 @@ public class GuidanceWorkingState
 
     // Visualization points
     public Vec2 GoalPoint { get; set; }
+    // True when GoalPoint is meaningful this cycle: the engaged steering target, or in
+    // free-drive the display-only target the steering would chase if engaged now (#95).
+    public bool HasGoalPoint { get; set; }
     public Vec2 RadiusPoint { get; set; }
     public double PurePursuitRadius { get; set; }
 
@@ -79,6 +70,7 @@ public class GuidanceWorkingState
         PpIntegral = PpPivotDistanceError = PpPivotDistanceErrorLast = 0;
         PpCounter = 0;
         GoalPoint = new Vec2();
+        HasGoalPoint = false;
         RadiusPoint = new Vec2();
         PurePursuitRadius = 0;
         IsHeadingSameWay = true;

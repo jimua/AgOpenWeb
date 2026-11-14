@@ -1,7 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2026 AgOpenWeb Contributors
-//
-// Licensed under GNU GPL v3. See LICENSE.md.
+// SPDX-License-Identifier: Apache-2.0
 
 using System;
 using System.Threading.Tasks;
@@ -50,6 +49,9 @@ public sealed class WebBackend
         string? uiContentRoot = null)
     {
         // Persisted settings → ConfigurationStore, then app config + persistent state.
+        // Slow-work reporting on the host loop (#169) once logging is available.
+        if (sp.GetService<IUiDispatcher>() is AgOpenWeb.Services.Threading.HostLoopDispatcher hostLoop)
+            hostLoop.Logger = sp.GetService<Microsoft.Extensions.Logging.ILoggerFactory>()?.CreateLogger("HostLoop");
         sp.GetRequiredService<ISettingsService>().Load();
         var configService = sp.GetRequiredService<IConfigurationService>();
         configService.LoadAppSettings();
@@ -79,6 +81,7 @@ public sealed class WebBackend
             sp.GetRequiredService<ISettingsService>(),
             sp.GetRequiredService<IVehicleProfileService>(),
             sp.GetRequiredService<IPersistentStateService>(),
+            sp.GetService<INtripClientService>(),
             port,
             uiContentRoot).ConfigureAwait(false);
 

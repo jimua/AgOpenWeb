@@ -1,18 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
 using System;
 using System.Collections.Generic;
@@ -43,7 +31,7 @@ namespace AgOpenWeb.Models.Tool
     /// <param name="VehicleHitchLength">Axle → tractor hitch pin (used by Trailing/TBT).</param>
     /// <param name="ToolHitchLength">Axle → implement working centre (used by rigid tools).</param>
     /// <param name="TrailingHitchLength">Hitch → tool pivot, along the tool.</param>
-    /// <param name="TrailingToolToPivotLength">Tool pivot → tool working centre.</param>
+    /// <param name="TrailingToolToPivotLength">Tool pivot → tool working centre, AgOpenGPS's sign: positive with the tool behind its wheels.</param>
     /// <param name="TankTrailingHitchLength">Hitch → tank pivot (TBT only).</param>
     /// <param name="Length">
     /// Fore-aft length of the implement body, from its attachment to the
@@ -146,7 +134,7 @@ namespace AgOpenWeb.Models.Tool
                         if (!seeded) { lastToolPivot = Behind(hitch, heading, geom.TrailingHitchLength); seeded = true; }
                         toolHeading = DirectionFrom(lastToolPivot, hitch, heading);
                         attachment = Behind(hitch, toolHeading, geom.TrailingHitchLength);
-                        toolCenter = Behind(hitch, toolHeading, geom.TrailingHitchLength - geom.TrailingToolToPivotLength);
+                        toolCenter = Behind(hitch, toolHeading, geom.TrailingHitchLength + geom.TrailingToolToPivotLength);
                         lastToolPivot = attachment;
                         break;
                     }
@@ -162,7 +150,7 @@ namespace AgOpenWeb.Models.Tool
                         Vec3 tank = Behind(hitch, tankHeading, geom.TankTrailingHitchLength);
                         toolHeading = DirectionFrom(lastToolPivot, tank, tankHeading);
                         attachment = Behind(tank, toolHeading, geom.TrailingHitchLength);
-                        toolCenter = Behind(tank, toolHeading, geom.TrailingHitchLength - geom.TrailingToolToPivotLength);
+                        toolCenter = Behind(tank, toolHeading, geom.TrailingHitchLength + geom.TrailingToolToPivotLength);
                         lastTank = tank;
                         lastToolPivot = attachment;
                         break;

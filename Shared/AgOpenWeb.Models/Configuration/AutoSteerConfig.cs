@@ -1,18 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -24,71 +12,15 @@ namespace AgOpenWeb.Models.Configuration;
 /// </summary>
 public class AutoSteerConfig : ObservableObject
 {
-    // ============================================
-    // Tab 1: Pure Pursuit / Stanley Algorithm
-    // ============================================
-
-    private double _steerResponseHold = 3.0;
-    /// <summary>
-    /// Goal point look ahead hold distance (meters).
-    /// Maps to goalPointLookAheadHold in AgOpenGPS.
-    /// Range: 1.0 - 10.0
-    /// </summary>
-    public double SteerResponseHold
-    {
-        get => _steerResponseHold;
-        set => SetProperty(ref _steerResponseHold, value);
-    }
-
-    private double _integralGain = 0.0;
-    /// <summary>
-    /// Integral gain for steering correction.
-    /// Range: 0.0 - 1.0 (displayed as 0-100%)
-    /// </summary>
-    public double IntegralGain
-    {
-        get => _integralGain;
-        set => SetProperty(ref _integralGain, value);
-    }
-
-    private bool _isStanleyMode = false;
-    /// <summary>
-    /// True = Stanley controller, False = Pure Pursuit
-    /// </summary>
-    public bool IsStanleyMode
-    {
-        get => _isStanleyMode;
-        set => SetProperty(ref _isStanleyMode, value);
-    }
-
-    // Stanley-specific settings
-    private double _stanleyAggressiveness = 1.0;
-    /// <summary>
-    /// Stanley aggressiveness gain.
-    /// Range: 0.0 - 10.0
-    /// </summary>
-    public double StanleyAggressiveness
-    {
-        get => _stanleyAggressiveness;
-        set => SetProperty(ref _stanleyAggressiveness, value);
-    }
-
-    private double _stanleyOvershootReduction = 1.0;
-    /// <summary>
-    /// Stanley overshoot reduction factor.
-    /// Range: 0.0 - 10.0
-    /// </summary>
-    public double StanleyOvershootReduction
-    {
-        get => _stanleyOvershootReduction;
-        set => SetProperty(ref _stanleyOvershootReduction, value);
-    }
+    // Tab 1 (Pure Pursuit / Stanley), the look-ahead speed factor and U-turn
+    // compensation live on GuidanceConfig — the values the guidance pipeline
+    // actually steers with (#99). The web AutoSteer panel edits them there.
 
     // ============================================
     // Tab 2: Steering Sensor Calibration
     // ============================================
 
-    private int _wasOffset = 0;
+    private int _wasOffset = 3;
     /// <summary>
     /// Wheel Angle Sensor zero offset (raw counts).
     /// Used to zero the WAS when wheels are straight.
@@ -99,7 +31,7 @@ public class AutoSteerConfig : ObservableObject
         set => SetProperty(ref _wasOffset, value);
     }
 
-    private double _countsPerDegree = 100;
+    private double _countsPerDegree = 110;
     /// <summary>
     /// WAS counts per degree of steering angle.
     /// Range: 1 - 255
@@ -122,16 +54,7 @@ public class AutoSteerConfig : ObservableObject
         set => SetProperty(ref _ackermann, value);
     }
 
-    private int _maxSteerAngle = 45;
-    /// <summary>
-    /// Maximum physical steering angle (degrees).
-    /// Range: 10 - 90
-    /// </summary>
-    public int MaxSteerAngle
-    {
-        get => _maxSteerAngle;
-        set => SetProperty(ref _maxSteerAngle, value);
-    }
+    // Max steer angle lives on VehicleConfig — the value guidance clamps with (#106).
 
     // ============================================
     // Tab 3: Deadzone / Timing
@@ -160,18 +83,6 @@ public class AutoSteerConfig : ObservableObject
         set => SetProperty(ref _deadzoneDelay, value);
     }
 
-    private double _speedFactor = 1.0;
-    /// <summary>
-    /// Speed-based look ahead multiplier.
-    /// Maps to goalPointLookAheadMult.
-    /// Range: 0.5 - 3.0
-    /// </summary>
-    public double SpeedFactor
-    {
-        get => _speedFactor;
-        set => SetProperty(ref _speedFactor, value);
-    }
-
     private double _acquireFactor = 0.9;
     /// <summary>
     /// Acquire distance factor.
@@ -188,10 +99,10 @@ public class AutoSteerConfig : ObservableObject
     // Tab 4: Gain / PWM Settings
     // ============================================
 
-    private int _proportionalGain = 10;
+    private int _proportionalGain = 50;
     /// <summary>
     /// Proportional gain (Kp) for steering PID.
-    /// Range: 1 - 100
+    /// Range: 1 - 200 (AgOpenGPS's slider)
     /// </summary>
     public int ProportionalGain
     {
@@ -199,7 +110,7 @@ public class AutoSteerConfig : ObservableObject
         set => SetProperty(ref _proportionalGain, value);
     }
 
-    private int _maxPwm = 235;
+    private int _maxPwm = 180;
     /// <summary>
     /// Maximum PWM output (high steer PWM).
     /// Range: 50 - 255
@@ -210,10 +121,10 @@ public class AutoSteerConfig : ObservableObject
         set => SetProperty(ref _maxPwm, value);
     }
 
-    private int _minPwm = 5;
+    private int _minPwm = 25;
     /// <summary>
     /// Minimum PWM to overcome static friction.
-    /// Range: 1 - 50
+    /// Range: 1 - 200 (AgOpenGPS's slider)
     /// </summary>
     public int MinPwm
     {
@@ -309,6 +220,23 @@ public class AutoSteerConfig : ObservableObject
         set => SetProperty(ref _invertWas, value);
     }
 
+    /// <summary>
+    /// Turn Invert WAS on or off and keep the centre: the firmware applies the offset with the
+    /// opposite sign for an inverted sensor, so the offset is negated with the toggle
+    /// (<see cref="WasCalibration.OffsetForInvert"/>). Without this, a sensor zeroed and then
+    /// inverted read twice the offset off straight ahead and had to be zeroed again. Every
+    /// operator toggle goes through here; loading settings sets <see cref="InvertWas"/> directly.
+    /// </summary>
+    /// <returns>True when the setting changed.</returns>
+    public bool SetInvertWasKeepingCentre(bool invert)
+    {
+        if (invert == _invertWas)
+            return false;
+        InvertWas = invert;
+        WasOffset = WasCalibration.OffsetForInvert(WasOffset);
+        return true;
+    }
+
     private bool _invertMotor = false;
     /// <summary>
     /// Invert motor direction.
@@ -372,17 +300,6 @@ public class AutoSteerConfig : ObservableObject
     // ============================================
     // Tab 7: Steering Algorithm Settings
     // ============================================
-
-    private double _uTurnCompensation = 0.0;
-    /// <summary>
-    /// U-Turn path compensation factor.
-    /// Range: -100 to 100 (negative = out, positive = in)
-    /// </summary>
-    public double UTurnCompensation
-    {
-        get => _uTurnCompensation;
-        set => SetProperty(ref _uTurnCompensation, value);
-    }
 
     private double _sideHillCompensation = 0.0;
     /// <summary>
@@ -471,6 +388,17 @@ public class AutoSteerConfig : ObservableObject
     {
         get => _nudgeDistance;
         set => SetProperty(ref _nudgeDistance, value);
+    }
+
+    private int _refNudgeDistance = 5;
+    /// <summary>
+    /// Step of the Ref Nudge panel in centimeters (AgOpenGPS setAS_snapDistanceRef): moves the
+    /// reference line itself, apart from <see cref="NudgeDistance"/>, which offsets the guidance line.
+    /// </summary>
+    public int RefNudgeDistance
+    {
+        get => _refNudgeDistance;
+        set => SetProperty(ref _refNudgeDistance, Math.Clamp(value, 1, 500));
     }
 
     private double _nextGuidanceTime = 1.5;
@@ -603,18 +531,11 @@ public class AutoSteerConfig : ObservableObject
     {
         return new AutoSteerConfigDto
         {
-            SteerResponseHold = SteerResponseHold,
-            IntegralGain = IntegralGain,
-            IsStanleyMode = IsStanleyMode,
-            StanleyAggressiveness = StanleyAggressiveness,
-            StanleyOvershootReduction = StanleyOvershootReduction,
             WasOffset = WasOffset,
             CountsPerDegree = CountsPerDegree,
             Ackermann = Ackermann,
-            MaxSteerAngle = MaxSteerAngle,
             DeadzoneHeading = DeadzoneHeading,
             DeadzoneDelay = DeadzoneDelay,
-            SpeedFactor = SpeedFactor,
             AcquireFactor = AcquireFactor,
             ProportionalGain = ProportionalGain,
             MaxPwm = MaxPwm,
@@ -633,7 +554,6 @@ public class AutoSteerConfig : ObservableObject
             AdConverter = AdConverter,
             ImuAxisSwap = ImuAxisSwap,
             ExternalEnable = ExternalEnable,
-            UTurnCompensation = UTurnCompensation,
             SideHillCompensation = SideHillCompensation,
             SteerInReverse = SteerInReverse,
             ManualTurnsEnabled = ManualTurnsEnabled,
@@ -642,6 +562,7 @@ public class AutoSteerConfig : ObservableObject
             MaxSteerSpeed = MaxSteerSpeed,
             LineWidth = LineWidth,
             NudgeDistance = NudgeDistance,
+            RefNudgeDistance = RefNudgeDistance,
             NextGuidanceTime = NextGuidanceTime,
             CmPerPixel = CmPerPixel,
             LightbarEnabled = LightbarEnabled,
@@ -655,18 +576,11 @@ public class AutoSteerConfig : ObservableObject
     /// </summary>
     public void ApplyFromDto(AutoSteerConfigDto dto)
     {
-        SteerResponseHold = dto.SteerResponseHold;
-        IntegralGain = dto.IntegralGain;
-        IsStanleyMode = dto.IsStanleyMode;
-        StanleyAggressiveness = dto.StanleyAggressiveness;
-        StanleyOvershootReduction = dto.StanleyOvershootReduction;
         WasOffset = dto.WasOffset;
         CountsPerDegree = dto.CountsPerDegree;
         Ackermann = dto.Ackermann;
-        MaxSteerAngle = dto.MaxSteerAngle;
         DeadzoneHeading = dto.DeadzoneHeading;
         DeadzoneDelay = dto.DeadzoneDelay;
-        SpeedFactor = dto.SpeedFactor;
         AcquireFactor = dto.AcquireFactor;
         ProportionalGain = dto.ProportionalGain;
         MaxPwm = dto.MaxPwm;
@@ -685,7 +599,6 @@ public class AutoSteerConfig : ObservableObject
         AdConverter = dto.AdConverter;
         ImuAxisSwap = dto.ImuAxisSwap;
         ExternalEnable = dto.ExternalEnable;
-        UTurnCompensation = dto.UTurnCompensation;
         SideHillCompensation = dto.SideHillCompensation;
         SteerInReverse = dto.SteerInReverse;
         ManualTurnsEnabled = dto.ManualTurnsEnabled;
@@ -694,6 +607,7 @@ public class AutoSteerConfig : ObservableObject
         MaxSteerSpeed = dto.MaxSteerSpeed;
         LineWidth = dto.LineWidth;
         NudgeDistance = dto.NudgeDistance;
+        RefNudgeDistance = dto.RefNudgeDistance;
         NextGuidanceTime = dto.NextGuidanceTime;
         CmPerPixel = dto.CmPerPixel;
         LightbarEnabled = dto.LightbarEnabled;
@@ -708,31 +622,24 @@ public class AutoSteerConfig : ObservableObject
     /// <summary>
     /// Reset all settings to factory defaults.
     /// </summary>
+    /// <summary>The steer page back to AgOpenGPS's defaults (its Settings.cs values; FormSteer's own
+    /// reset button sets max steer 45 and acquire 0.85, which its defaults don't): checklist 10.7.</summary>
     public void ResetToDefaults()
     {
-        // Tab 1: Pure Pursuit / Stanley
-        SteerResponseHold = 3.0;
-        IntegralGain = 0.0;
-        IsStanleyMode = false;
-        StanleyAggressiveness = 1.0;
-        StanleyOvershootReduction = 1.0;
-
         // Tab 2: Steering Sensor
-        WasOffset = 0;
-        CountsPerDegree = 100;
+        WasOffset = 3;
+        CountsPerDegree = 110;
         Ackermann = 100;
-        MaxSteerAngle = 45;
 
         // Tab 3: Deadzone / Timing
         DeadzoneHeading = 0.1;
         DeadzoneDelay = 5;
-        SpeedFactor = 1.0;
         AcquireFactor = 0.9;
 
         // Tab 4: Gain / PWM
-        ProportionalGain = 10;
-        MaxPwm = 235;
-        MinPwm = 5;
+        ProportionalGain = 50;
+        MaxPwm = 180;
+        MinPwm = 25;
 
         // Tab 5: Turn Sensors
         TurnSensorEnabled = false;
@@ -753,7 +660,6 @@ public class AutoSteerConfig : ObservableObject
         ExternalEnable = 0;
 
         // Tab 7: Algorithm
-        UTurnCompensation = 0.0;
         SideHillCompensation = 0.0;
         SteerInReverse = false;
 
@@ -766,6 +672,7 @@ public class AutoSteerConfig : ObservableObject
         // Tab 9: Display
         LineWidth = 2;
         NudgeDistance = 20;
+        RefNudgeDistance = 5;
         NextGuidanceTime = 1.5;
         CmPerPixel = 5;
         LightbarEnabled = true;
@@ -779,29 +686,20 @@ public class AutoSteerConfig : ObservableObject
 /// </summary>
 public record AutoSteerConfigDto
 {
-    // Tab 1: Pure Pursuit / Stanley
-    public double SteerResponseHold { get; init; } = 3.0;
-    public double IntegralGain { get; init; } = 0.0;
-    public bool IsStanleyMode { get; init; } = false;
-    public double StanleyAggressiveness { get; init; } = 1.0;
-    public double StanleyOvershootReduction { get; init; } = 1.0;
-
     // Tab 2: Steering Sensor
-    public int WasOffset { get; init; } = 0;
-    public double CountsPerDegree { get; init; } = 100;
+    public int WasOffset { get; init; } = 3;
+    public double CountsPerDegree { get; init; } = 110;
     public int Ackermann { get; init; } = 100;
-    public int MaxSteerAngle { get; init; } = 45;
 
     // Tab 3: Deadzone / Timing
     public double DeadzoneHeading { get; init; } = 0.1;
     public int DeadzoneDelay { get; init; } = 5;
-    public double SpeedFactor { get; init; } = 1.0;
     public double AcquireFactor { get; init; } = 0.9;
 
     // Tab 4: Gain / PWM
-    public int ProportionalGain { get; init; } = 10;
-    public int MaxPwm { get; init; } = 235;
-    public int MinPwm { get; init; } = 5;
+    public int ProportionalGain { get; init; } = 50;
+    public int MaxPwm { get; init; } = 180;
+    public int MinPwm { get; init; } = 25;
 
     // Tab 5: Turn Sensors
     public bool TurnSensorEnabled { get; init; } = false;
@@ -822,7 +720,6 @@ public record AutoSteerConfigDto
     public int ExternalEnable { get; init; } = 0;
 
     // Tab 7: Algorithm
-    public double UTurnCompensation { get; init; } = 0.0;
     public double SideHillCompensation { get; init; } = 0.0;
     public bool SteerInReverse { get; init; } = false;
 
@@ -835,6 +732,7 @@ public record AutoSteerConfigDto
     // Tab 9: Display
     public int LineWidth { get; init; } = 2;
     public int NudgeDistance { get; init; } = 20;
+    public int RefNudgeDistance { get; init; } = 5;
     public double NextGuidanceTime { get; init; } = 1.5;
     public int CmPerPixel { get; init; } = 5;
     public bool LightbarEnabled { get; init; } = true;

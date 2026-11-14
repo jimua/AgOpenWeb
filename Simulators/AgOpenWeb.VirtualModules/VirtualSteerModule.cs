@@ -1,10 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// SPDX-License-Identifier: Apache-2.0
 
 using System;
 using System.Net;
@@ -177,9 +173,15 @@ public class VirtualSteerModule : IDisposable
     {
         get
         {
+            // Same as the AgOpenGPS firmware (Boards: AiO v4 Autosteer.ino, centre 6805 → 0):
+            //   normal:   (raw + wasOffset) /  cpd
+            //   inverted: (raw - wasOffset) / -cpd
+            // (#103: this used (raw - offset) / cpd, the opposite sign, so the host's Zero WAS
+            // was tuned against the emulator instead of real modules.)
             double appliedCpd = CountsPerDegree > 0 ? CountsPerDegree : 1.0;
-            double calibrated = (TruthRawCounts - WasOffset) / appliedCpd;
-            return InvertWas ? -calibrated : calibrated;
+            return InvertWas
+                ? (TruthRawCounts - WasOffset) / -appliedCpd
+                : (TruthRawCounts + WasOffset) / appliedCpd;
         }
     }
 

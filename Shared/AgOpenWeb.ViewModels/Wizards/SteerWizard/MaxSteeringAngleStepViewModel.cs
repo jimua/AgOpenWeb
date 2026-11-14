@@ -1,7 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2026 AgOpenWeb Contributors
-//
-// Licensed under GNU GPL v3. See LICENSE.md.
+// SPDX-License-Identifier: Apache-2.0
 
 using System;
 using System.Threading;
@@ -48,20 +47,33 @@ public enum MaxSteeringAnglePhase
 /// </summary>
 public class MaxSteeringAngleStepViewModel : SwitchGatedWizardStep
 {
-    private const double CommandedFullLockDeg = 60.0;
+    /// <summary>Past any lock, and the most the service lets a free drive command ask for.</summary>
+    private const double CommandedFullLockDeg = IAutoSteerService.FreeDriveLimitDeg;
     private const double PlateauThresholdDeg = 0.2;
     private const int PlateauStableSamples = 5;
     private const int PollIntervalMs = 100;
     private const int PlateauTimeoutMs = 6000;
+    /// <summary>Settle at centre between the two locks; the end of the test waits for centre.</summary>
     private const int CenterReturnSettleMs = 800;
-
-    private HardwareInstalledStepViewModel? _hardwareStep;
-    private CancellationTokenSource? _cancellationTokenSource;
+    /// <summary>
+    /// Each side must move at least this far from the start angle to count as a real lock
+    /// reading (AgOpenGPS rejects max steer angles under 5°). Stationary wheels "plateau"
+    /// immediately, so without this the current angle was saved for both sides (#170).
+    /// </summary>
+    internal const double MinLockMovementDeg = 5.0;
 
     /// <summary>
-    /// Injectable delay function for testing.
+    /// Wheels moving this far AWAY from the commanded side stop the test at once: the motor
+    /// direction is wrong (the motor test was skipped, or the motor was rewired), and going
+    /// on drives them into the opposite lock and holds them there.
     /// </summary>
-    internal Func<int, CancellationToken, Task> DelayFunc { get; set; } = Task.Delay;
+    internal const double WrongWayLimitDeg = 3.0;
+
+    internal const string WrongWayText =
+        "The wheels turned the wrong way, so the test stopped and left them where they are. " +
+        "Run the motor test first (Back): it finds the motor direction.";
+
+    private HardwareInstalledStepViewModel? _hardwareStep;
 
     /// <summary>
     /// Injectable WAS reader. Production reads from
@@ -85,7 +97,7 @@ public class MaxSteeringAngleStepViewModel : SwitchGatedWizardStep
         IUiDispatcher dispatcher, IAutoSteerService? autoSteerService = null)
         : base(configService, autoSteerService, dispatcher)
     {
-        StartTestCommand = new AsyncRelayCommand(RunMaxAngleMeasurementAsync);
+        StartTestCommand = new AsyncRelayCommand(RunMaxAngleMeasurementAsync, () => CanStartTest);
         RedoCommand = new AsyncRelayCommand(Redo);
     }
 
@@ -171,6 +183,9 @@ public class MaxSteeringAngleStepViewModel : SwitchGatedWizardStep
         set => SetProperty(ref _calibrationCompleted, value);
     }
 
+    /// <summary>The max angle test ran to its end in this wizard (the Finish page lists the tests not run).</summary>
+    public bool TestDone { get; internal set; }
+
     private double _liveSteerAngle;
     public double LiveSteerAngle
     {
@@ -183,21 +198,40 @@ public class MaxSteeringAngleStepViewModel : SwitchGatedWizardStep
 
     /// <summary>
     /// Run a full-lock pulse in both directions, capturing each side's
-    /// natural plateau. Restores center and disables free-drive on
-    /// every exit path.
+    /// natural plateau. Stops before moving anything if the module isn't
+    /// armed; on every exit path returns to centre and hands PGN 254 back
+    /// with AutoSteer off (#154).
     /// </summary>
     internal async Task RunMaxAngleMeasurementAsync()
     {
-        _cancellationTokenSource = new CancellationTokenSource();
-        var token = _cancellationTokenSource.Token;
+        var token = NewTestToken();
 
-        AutoSteerService?.EnableFreeDrive();
+        double startAngle = CurrentWasAngle;
         Progress = 0;
+        PhaseResult = "";
+        bool wrongWay = false;
 
         try
         {
+            if (!await BeginFreeDriveAsync(token))
+            {
+                // Back to the start text: a "captured" line left from an earlier run
+                // sat above this error (#240).
+                Phase = MaxSteeringAnglePhase.WaitingToStart;
+                PhaseResult = NotArmedText;
+                return;
+            }
+
             Phase = MaxSteeringAnglePhase.MeasuringRight;
-            DetectedMaxAngleRight = Math.Abs(await DriveToPlateauAsync(+CommandedFullLockDeg, token));
+            double? rightOrNull = await DriveToPlateauAsync(+CommandedFullLockDeg, token);
+            if (rightOrNull is not { } right)
+            {
+                wrongWay = true;
+                Phase = MaxSteeringAnglePhase.WaitingToStart;
+                Progress = 0;
+                PhaseResult = WrongWayText;
+                return;
+            }
             Progress = 0.5;
 
             // Return through center with a short settle so the next
@@ -206,11 +240,29 @@ public class MaxSteeringAngleStepViewModel : SwitchGatedWizardStep
             await DelayFunc(CenterReturnSettleMs, token);
 
             Phase = MaxSteeringAnglePhase.MeasuringLeft;
-            DetectedMaxAngleLeft = Math.Abs(await DriveToPlateauAsync(-CommandedFullLockDeg, token));
+            double? leftOrNull = await DriveToPlateauAsync(-CommandedFullLockDeg, token);
+            if (leftOrNull is not { } left)
+            {
+                wrongWay = true;
+                Phase = MaxSteeringAnglePhase.WaitingToStart;
+                Progress = 0;
+                PhaseResult = WrongWayText;
+                return;
+            }
             Progress = 1.0;
 
-            AutoSteerService?.SetFreeDriveAngle(0);
-            await DelayFunc(CenterReturnSettleMs, token);
+            await EndFreeDriveAsync();
+
+            if (LockMovementError(startAngle, right, left) is { } error)
+            {
+                // Nothing measured — don't complete and don't save (#170).
+                Phase = MaxSteeringAnglePhase.WaitingToStart;
+                Progress = 0;
+                PhaseResult = error + " Max steer angle not changed.";
+                return;
+            }
+            DetectedMaxAngleRight = Math.Abs(right);
+            DetectedMaxAngleLeft = Math.Abs(left);
 
             // Conservative: 90 % of the smaller side. Treating asymmetric
             // mechanical limits as if they were symmetric would push past
@@ -218,6 +270,7 @@ public class MaxSteeringAngleStepViewModel : SwitchGatedWizardStep
             MaxSteerAngle = (int)(Math.Min(DetectedMaxAngleRight, DetectedMaxAngleLeft) * 0.9);
 
             CalibrationCompleted = true;
+            TestDone = true;
             Phase = MaxSteeringAnglePhase.Complete;
             PhaseResult =
                 $"Right max: {DetectedMaxAngleRight:F1}\n" +
@@ -230,8 +283,7 @@ public class MaxSteeringAngleStepViewModel : SwitchGatedWizardStep
         }
         finally
         {
-            AutoSteerService?.SetFreeDriveAngle(0);
-            AutoSteerService?.DisableFreeDrive();
+            await EndFreeDriveAsync(centre: !wrongWay);
         }
     }
 
@@ -242,13 +294,15 @@ public class MaxSteeringAngleStepViewModel : SwitchGatedWizardStep
     /// for <see cref="PlateauStableSamples"/> consecutive samples. If
     /// no plateau materialises within <see cref="PlateauTimeoutMs"/>
     /// the last sample is returned — partial information beats no
-    /// information.
+    /// information. Returns null, at once, when the wheels move <see cref="WrongWayLimitDeg"/>
+    /// the other way.
     /// </summary>
-    private async Task<double> DriveToPlateauAsync(double commandedAngleDeg, CancellationToken token)
+    private async Task<double?> DriveToPlateauAsync(double commandedAngleDeg, CancellationToken token)
     {
+        double start = CurrentWasAngle;
         AutoSteerService?.SetFreeDriveAngle(commandedAngleDeg);
 
-        double previous = GetCurrentWasAngle();
+        double previous = start;
         int stableCount = 0;
         int elapsed = 0;
 
@@ -258,8 +312,11 @@ public class MaxSteeringAngleStepViewModel : SwitchGatedWizardStep
             await DelayFunc(PollIntervalMs, token);
             elapsed += PollIntervalMs;
 
-            double sample = GetCurrentWasAngle();
+            double sample = CurrentWasAngle;
             LiveSteerAngle = Math.Round(sample, 1);
+
+            if (Math.Sign(commandedAngleDeg) * (sample - start) < -WrongWayLimitDeg)
+                return null;
 
             if (Math.Abs(sample - previous) < PlateauThresholdDeg)
             {
@@ -276,6 +333,21 @@ public class MaxSteeringAngleStepViewModel : SwitchGatedWizardStep
         return previous;
     }
 
+    /// <summary>
+    /// Why the readings don't show the wheels reaching a lock each way, or null when they do.
+    /// </summary>
+    internal static string? LockMovementError(double start, double right, double left)
+    {
+        double movedRight = right - start, movedLeft = start - left;
+        if (movedRight >= MinLockMovementDeg && movedLeft >= MinLockMovementDeg)
+            return null;
+        if (movedRight <= -MinLockMovementDeg && movedLeft <= -MinLockMovementDeg)
+            return $"The wheels moved the opposite way (right {right:F1}°, left {left:F1}°) — check the WAS and motor direction.";
+        // Arming was checked before the test started, so the switch isn't the cause here.
+        return $"The wheels didn't move (start {start:F1}°, right {right:F1}°, left {left:F1}°). " +
+               "The module was steering: check the valve or motor, its power, and the WAS.";
+    }
+
     private Task Redo()
     {
         Phase = MaxSteeringAnglePhase.WaitingToStart;
@@ -288,12 +360,7 @@ public class MaxSteeringAngleStepViewModel : SwitchGatedWizardStep
         return Task.CompletedTask;
     }
 
-    private double GetCurrentWasAngle()
-    {
-        if (ReadWasAngle != null)
-            return ReadWasAngle();
-        return AutoSteerService?.LastSteerData.ActualSteerAngle ?? 0;
-    }
+    protected override double CurrentWasAngle => ReadWasAngle?.Invoke() ?? base.CurrentWasAngle;
 
     protected override void OnEntering()
     {
@@ -302,8 +369,7 @@ public class MaxSteeringAngleStepViewModel : SwitchGatedWizardStep
         PhaseResult = "";
         CalibrationCompleted = false;
 
-        var autoSteer = ConfigService.Store.AutoSteer;
-        MaxSteerAngle = autoSteer.MaxSteerAngle;
+        MaxSteerAngle = (int)Math.Round(ConfigService.Store.Vehicle.MaxSteerAngle);
 
         if (AutoSteerService != null)
             AutoSteerService.StateUpdated += OnStateUpdated;
@@ -313,23 +379,15 @@ public class MaxSteeringAngleStepViewModel : SwitchGatedWizardStep
 
     protected override void OnLeaving()
     {
-        _cancellationTokenSource?.Cancel();
+        StopFreeDriveTest();
 
         if (AutoSteerService != null)
-        {
             AutoSteerService.StateUpdated -= OnStateUpdated;
-
-            if (AutoSteerService.IsInFreeDriveMode)
-            {
-                AutoSteerService.SetFreeDriveAngle(0);
-                AutoSteerService.DisableFreeDrive();
-            }
-        }
 
         UnsubscribeFromSwitchGate();
 
         if (CalibrationCompleted)
-            ConfigService.Store.AutoSteer.MaxSteerAngle = MaxSteerAngle;
+            ConfigService.Store.Vehicle.MaxSteerAngle = MaxSteerAngle; // what guidance clamps with (#106)
     }
 
     private void OnStateUpdated(object? sender, VehicleStateSnapshot snapshot)

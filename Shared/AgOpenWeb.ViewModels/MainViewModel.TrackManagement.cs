@@ -1,18 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
 using System;
 using System.Collections.Generic;
@@ -77,7 +65,7 @@ public partial class MainViewModel
         {
             if (!IsFieldOpen)
             {
-                StatusMessage = "Open a field first";
+                ReportFailure("Open a field first");
                 return;
             }
             _recPathRecordingPoints.Clear();
@@ -106,18 +94,18 @@ public partial class MainViewModel
                 $"RecPath {DateTime.Now:HH:mm:ss}", vec3List);
 
             RecordedPathTracks.Add(track);
-            SavedTracks.Add(track);
+            AddSavedTrack(track);
             UpdateRecordedPathsOnMap();
 
-            // Save as RecPath.txt (current/default)
+            // Save as the field's recorded path in use
             var activeField = _fieldService.ActiveField;
             if (activeField != null && !string.IsNullOrEmpty(activeField.DirectoryPath))
             {
                 try
                 {
                     var pointsCopy = new List<RecPathPoint>(_recPathRecordingPoints);
-                    Services.RecPathFileService.SaveRecPath(activeField.DirectoryPath, pointsCopy);
-                    _logger.LogDebug($"[RecPath] Saved {pointsCopy.Count} points to RecPath.txt");
+                    Services.GeoJson.GeoJsonFieldService.SaveCurrentRecordedPath(activeField.DirectoryPath, pointsCopy);
+                    _logger.LogDebug($"[RecPath] Saved {pointsCopy.Count} points");
                 }
                 catch (Exception ex) { _logger.LogDebug($"[RecPath] Save failed: {ex.Message}"); }
             }
@@ -140,7 +128,7 @@ public partial class MainViewModel
             var activeField = _fieldService.ActiveField;
             if (activeField == null || string.IsNullOrEmpty(activeField.DirectoryPath))
             {
-                StatusMessage = "Open a field first before importing tracks";
+                ReportFailure("Open a field first before importing tracks");
                 return;
             }
 
@@ -149,7 +137,7 @@ public partial class MainViewModel
             var fieldsDir = FieldsRootDirectory;
             if (string.IsNullOrEmpty(fieldsDir) || !Directory.Exists(fieldsDir))
             {
-                StatusMessage = "No fields directory found";
+                ReportFailure("No fields directory found");
                 return;
             }
 
@@ -160,13 +148,13 @@ public partial class MainViewModel
                 if (dir == activeField.DirectoryPath)
                     continue;
                 // Only include fields that have tracks
-                if (Services.TrackFilesService.Exists(dir))
+                if (_fieldService.PeekTracks(dir).Count > 0)
                     ImportFieldsList.Add(fieldName);
             }
 
             if (ImportFieldsList.Count == 0)
             {
-                StatusMessage = "No other fields with tracks found";
+                ReportFailure("No other fields with tracks found");
                 return;
             }
 
@@ -183,10 +171,10 @@ public partial class MainViewModel
 
             try
             {
-                var importedTracks = Services.TrackFilesService.Load(sourceDir);
+                var importedTracks = _fieldService.PeekTracks(sourceDir);
                 if (importedTracks.Count == 0)
                 {
-                    StatusMessage = "No tracks found in selected field";
+                    ReportFailure("No tracks found in selected field");
                     return;
                 }
 
@@ -200,7 +188,7 @@ public partial class MainViewModel
                 foreach (var track in transformed)
                 {
                     track.IsActive = false;
-                    SavedTracks.Add(track);
+                    AddSavedTrack(track);
 
                     if (track.Type == TrackType.RecordedPath)
                         RecordedPathTracks.Add(track);
@@ -219,7 +207,7 @@ public partial class MainViewModel
             }
             catch (Exception ex)
             {
-                StatusMessage = $"Import failed: {ex.Message}";
+                ReportFailure($"Import failed: {ex.Message}");
                 _logger.LogWarning(ex, "[TrackImport] Failed to import tracks from {Field}", fieldName);
             }
         });
@@ -233,23 +221,10 @@ public partial class MainViewModel
         {
             if (SelectedTrack == null)
             {
-                StatusMessage = "No track selected";
+                ReportFailure("No track selected");
                 return;
             }
-
-            var trackName = SelectedTrack.Name;
-            var trackToRemove = SelectedTrack;
-            bool wasRecPath = trackToRemove.Type == TrackType.RecordedPath;
-            SelectedTrack = null;
-            SavedTracks.Remove(trackToRemove); // mirrors into State.Field.Tracks
-            RebuildRecordedPathsAndContours();
-            SaveTracksToFile();
-            // A recorded path is re-loaded from RecPath.txt on every field open
-            // (LoadRecPathFromField), so removing it from SavedTracks alone isn't enough —
-            // the file must go too, else it reappears after restart.
-            if (wasRecPath && _fieldService.ActiveField is { } f)
-                RecPathFileService.DeleteRecFile(f.DirectoryPath, "RecPath.txt");
-            StatusMessage = $"Deleted track '{trackName}'";
+            DeleteTrack(SelectedTrack);
         });
 
         StartContourRecordingCommand = new RelayCommand(() =>
@@ -285,7 +260,7 @@ public partial class MainViewModel
 
             if (_contourRecordingPoints.Count < 3)
             {
-                StatusMessage = $"Need at least 3 points for contour (have {_contourRecordingPoints.Count})";
+                ReportFailure($"Need at least 3 points for contour (have {_contourRecordingPoints.Count})");
                 _contourRecordingPoints.Clear();
                 _lastContourPoint = null;
                 return;
@@ -297,7 +272,7 @@ public partial class MainViewModel
                 new List<Vec3>(_contourRecordingPoints));
 
             ContourStrips.Add(contourTrack);
-            SavedTracks.Add(contourTrack);
+            AddSavedTrack(contourTrack);
             SaveTracksToFile();
             UpdateContourStripsOnMap();
 
@@ -314,8 +289,30 @@ public partial class MainViewModel
     /// <summary>
     /// Called by TracksDialogPanel when a track visibility checkbox is toggled.
     /// </summary>
+    /// <summary>
+    /// The active track is going (hidden or deleted): AutoSteer and U-turn off, with the reason,
+    /// and no track active. Clearing the track alone left AutoSteer engaged with nothing to follow.
+    /// </summary>
+    private void StopGuidanceOnActiveTrack(string logReason, string message)
+    {
+        if (IsAutoSteerEngaged)
+        {
+            IsAutoSteerEngaged = false;
+            _autoSteerService.Disengage();
+            _audioService.Play(Services.Interfaces.SoundEffect.AutoSteerOff);
+            LogAutoSteerOff(logReason);
+            ReportFailure(message);
+        }
+        if (IsYouTurnEnabled) IsYouTurnEnabled = false;
+        SelectedTrack = null;
+    }
+
     public void OnTrackVisibilityChanged()
     {
+        // A hidden track can't be the one guided on: the tractor would follow a line that isn't
+        // drawn. Guidance stops, as when the active track is deleted.
+        if (SelectedTrack is { IsVisible: false } hidden)
+            StopGuidanceOnActiveTrack("track hidden", $"Guidance stopped: '{hidden.Name}' is hidden");
         SaveTracksToFile();
         RebuildRecordedPathsAndContours();
     }
@@ -445,7 +442,7 @@ public partial class MainViewModel
     /// <summary>
 /// Transform tracks from a source field's local plane into the active
 /// field's local plane. If the active field's origin can't be determined
-/// or the source has no Field.txt, falls back to returning the input
+/// or the source isn't a readable field, falls back to returning the input
 /// unchanged so the legacy "untransformed" import path still works
 /// (better than failing entirely on partial field data).
 /// </summary>
@@ -457,12 +454,12 @@ private List<TrackModel> TransformImportedTracks(IReadOnlyList<TrackModel> sourc
     Wgs84 sourceOrigin;
     try
     {
-        var sourceField = new FieldPlaneFileService().LoadField(sourceDir);
+        var sourceField = _fieldService.PeekField(sourceDir);
         sourceOrigin = new Wgs84(sourceField.Origin.Latitude, sourceField.Origin.Longitude);
     }
     catch
     {
-        // No Field.txt in the source directory or the file is malformed.
+        // No field in the source directory, or it can't be read.
         // Treat tracks as already in the active field's plane (legacy behavior).
         _logger.LogWarning("[TrackImport] Could not read source field origin; importing tracks without coordinate transform");
         return sourceTracks.ToList();
@@ -477,4 +474,90 @@ private List<TrackModel> TransformImportedTracks(IReadOnlyList<TrackModel> sourc
 }
 
     #endregion
+
+    /// <summary>Delete one saved track. Deactivates it first if it's the active one;
+    /// any other active track stays active.</summary>
+    private void DeleteTrack(Track trackToRemove)
+    {
+        var trackName = trackToRemove.Name;
+        bool wasRecPath = trackToRemove.Type == TrackType.RecordedPath;
+        if (SelectedTrack == trackToRemove)
+            StopGuidanceOnActiveTrack("track deleted", $"Guidance stopped: '{trackName}' was deleted");
+        SavedTracks.Remove(trackToRemove); // mirrors into State.Field.Tracks
+        RebuildRecordedPathsAndContours();
+        SaveTracksToFile();
+        // The recorded path in use is re-loaded on every field open (LoadRecPathFromField), so
+        // removing it from SavedTracks alone isn't enough: it must go from the field too, else
+        // it reappears after restart.
+        if (wasRecPath && _fieldService.ActiveField is { } f)
+            Services.GeoJson.GeoJsonFieldService.DeleteCurrentRecordedPath(f.DirectoryPath);
+        var dropped = DropTramSystemsFollowing(new[] { trackName });
+        StatusMessage = dropped.Count == 0
+            ? $"Deleted track '{trackName}'"
+            : $"Deleted track '{trackName}' and the tram system(s) that followed it: {string.Join(", ", dropped)}";
+    }
+
+    /// <summary>The tram systems that follow the track called <paramref name="trackName"/>
+    /// (a system names its track; a rename or a delete must not leave it pointing at nothing).</summary>
+    private List<Models.Tram.TramSystem> TramSystemsFollowing(string trackName) =>
+        TramSystems.Where(s => s.ReferenceBoundaryIndex < 0
+            && string.Equals(s.ReferenceTrackName, trackName, StringComparison.Ordinal)).ToList();
+
+    /// <summary>Remove the tram systems that followed tracks that are gone (and no remaining
+    /// track has the name), rebuild the lines and save. Returns the names of the systems removed.</summary>
+    private List<string> DropTramSystemsFollowing(IEnumerable<string> deletedTrackNames)
+    {
+        var dropped = new List<string>();
+        foreach (var name in deletedTrackNames.Distinct(StringComparer.Ordinal))
+        {
+            if (SavedTracks.Any(t => t.Name == name)) continue; // another track still has the name
+            foreach (var s in TramSystemsFollowing(name))
+            {
+                TramSystems.Remove(s);
+                dropped.Add(s.Name);
+            }
+        }
+        if (dropped.Count > 0) RebuildAndSaveTram();
+        return dropped;
+    }
+
+    /// <summary>Tracks manager / Field Builder Delete (web, #109): delete the track the
+    /// operator highlighted, by index, rather than whatever happens to be active.</summary>
+    public void DeleteTrackAt(int index)
+    {
+        if (index < 0 || index >= SavedTracks.Count)
+        {
+            ReportFailure("No track selected");
+            return;
+        }
+        DeleteTrack(SavedTracks[index]);
+    }
+
+    /// <summary>Tracks manager Activate (web, #109), like AgOpenGPS's Use: activate the
+    /// highlighted track, or the first visible one when nothing (or a hidden track) is
+    /// highlighted. Activating the track that's already active turns it off, so the
+    /// operator can still stop guidance from here.</summary>
+    public void ActivateTrackAt(int index)
+    {
+        // Auto Track would switch away from this choice within a second, so picking a
+        // track by hand turns it off (AgOpenGPS btnTrack / btnCycleLines).
+        IsAutoTrackEnabled = false;
+
+        Track? t = index >= 0 && index < SavedTracks.Count && SavedTracks[index].IsVisible
+            ? SavedTracks[index]
+            : SavedTracks.FirstOrDefault(x => x.IsVisible);
+        if (t == null)
+        {
+            ReportFailure("No visible tracks");
+            return;
+        }
+        if (t == SelectedTrack)
+        {
+            SelectedTrack = null;
+            StatusMessage = "Track deactivated";
+            return;
+        }
+        SelectedTrack = t;
+        StatusMessage = $"Activated track: {t.Name}";
+    }
 }

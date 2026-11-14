@@ -1,18 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
 using System;
 using System.IO;
@@ -69,7 +57,7 @@ public partial class MainViewModel
                 try
                 {
                     var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
-                    var boundary = _boundaryFileService.LoadBoundary(fieldPath) ?? new Boundary();
+                    var boundary = LoadFieldBoundary(fieldPath) ?? new Boundary();
 
                     // Use the EXISTING field origin for LocalPlane conversion - do NOT change it!
                     // The field origin is set when the field is created and should remain constant.
@@ -98,13 +86,14 @@ public partial class MainViewModel
                     else
                         boundary.OuterBoundary = outerPolygon;
 
-                    _boundaryFileService.SaveBoundary(boundary, fieldPath);
+                    SaveFieldBoundary(boundary, fieldPath);
 
                     // NOTE: Do NOT overwrite the field origin - it should stay constant!
                     // The simulator coordinates and field origin should not change when
                     // the user draws a boundary on the map.
 
                     SetCurrentBoundary(boundary);
+                    if (PendingBoundaryType == BoundaryType.Outer) OuterBoundaryChanged();
 
                     // Pan to boundary center only for outer boundaries
                     if (PendingBoundaryType == BoundaryType.Outer && outerPolygon.Points.Count > 0)
@@ -146,7 +135,7 @@ public partial class MainViewModel
                 }
                 catch (Exception ex)
                 {
-                    StatusMessage = $"Error creating boundary: {ex.Message}";
+                    ReportFailure($"Error creating boundary: {ex.Message}");
                 }
             }
 
@@ -211,7 +200,7 @@ public partial class MainViewModel
         {
             if (!IsFieldOpen)
             {
-                StatusMessage = "Open a field first";
+                ReportFailure("Open a field first");
                 return;
             }
             OpenChainDialog(DialogType.FieldBuilder);
@@ -222,7 +211,7 @@ public partial class MainViewModel
         {
             if (!HasHeadland)
             {
-                StatusMessage = "No headland defined";
+                ReportFailure("No headland defined");
                 return;
             }
             IsHeadlandOn = !IsHeadlandOn;
@@ -361,14 +350,14 @@ public partial class MainViewModel
         {
             if (!HeadlandPointsSelected)
             {
-                StatusMessage = "Select 2 points on the boundary first";
+                ReportFailure("Select 2 points on the boundary first");
                 return;
             }
 
             var headlandToClip = CurrentHeadlandLine ?? ConvertPreviewToVec3(HeadlandPreviewLine);
             if (headlandToClip == null || headlandToClip.Count < 3)
             {
-                StatusMessage = "No headland to clip - use Build first";
+                ReportFailure("No headland to clip - use Build first");
                 return;
             }
 
@@ -379,7 +368,7 @@ public partial class MainViewModel
         {
             if (_previousHeadlandLine == null && !_previousHasHeadland)
             {
-                StatusMessage = "Nothing to undo";
+                ReportFailure("Nothing to undo");
                 return;
             }
 
@@ -456,27 +445,30 @@ public partial class MainViewModel
                 if (!string.IsNullOrEmpty(CurrentFieldName))
                 {
                     var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
-                    var boundary = _boundaryFileService.LoadBoundary(fieldPath) ?? new Boundary();
+                    var boundary = LoadFieldBoundary(fieldPath) ?? new Boundary();
 
                     if (_boundaryRecordingService.CurrentBoundaryType == BoundaryType.Inner)
                         boundary.InnerBoundaries.Add(polygon);
                     else
                         boundary.OuterBoundary = polygon;
 
-                    _boundaryFileService.SaveBoundary(boundary, fieldPath);
+                    SaveFieldBoundary(boundary, fieldPath);
                     SetCurrentBoundary(boundary);
                     RefreshBoundaryList();
-                    var typeLabel = _boundaryRecordingService.CurrentBoundaryType == BoundaryType.Inner ? "Inner boundary" : "Boundary";
-                    StatusMessage = $"{typeLabel} saved with {polygon.Points.Count} points, Area: {polygon.AreaHectares:F2} Ha";
+                    bool inner = _boundaryRecordingService.CurrentBoundaryType == BoundaryType.Inner;
+                    string done = inner ? "" : OuterBoundaryChanged();
+                    var typeLabel = inner ? "Inner boundary" : "Boundary";
+                    StatusMessage = $"{typeLabel} saved with {polygon.Points.Count} points, Area: {polygon.AreaHectares:F2} Ha"
+                        + (done.Length > 0 ? $"; {done}" : "");
                 }
                 else
                 {
-                    StatusMessage = "Cannot save boundary - no field is open";
+                    ReportFailure("Cannot save boundary - no field is open");
                 }
             }
             else
             {
-                StatusMessage = "Boundary not saved - need at least 3 points";
+                ReportFailure("Boundary not saved - need at least 3 points");
             }
 
             IsBoundaryPlayerPanelVisible = false;
@@ -512,8 +504,13 @@ public partial class MainViewModel
 
         AddBoundaryPointCommand = new RelayCommand(() =>
         {
-            double headingRadians = Heading * Math.PI / 180.0;
-            var (offsetEasting, offsetNorthing) = CalculateOffsetPosition(Easting, Northing, headingRadians);
+            // The point goes where the drive would record one (AgOpenGPS btnAddPoint calls the
+            // same AddBoundaryPoint): at the pivot plus the offset, or at the tool's edge, from
+            // the cycle's pivot (the 5 Hz mirror used here was up to 200 ms behind, and the Tool
+            // setting was ignored).
+            var v = State.Vehicle;
+            double headingRadians = v.Heading * Math.PI / 180.0;
+            var (offsetEasting, offsetNorthing) = BoundaryRecordPoint(v.Easting, v.Northing, headingRadians);
             _boundaryRecordingService.AddPointManual(offsetEasting, offsetNorthing, headingRadians);
             StatusMessage = $"Point added ({_boundaryRecordingService.PointCount} total)";
         });
@@ -532,7 +529,7 @@ public partial class MainViewModel
         {
             NumericInputDialogTitle = "Boundary Offset (cm)";
             NumericInputDialogValue = (decimal)BoundaryOffset;
-            NumericInputDialogDisplayText = BoundaryOffset.ToString("F0");
+            NumericInputDialogDisplayText = BoundaryOffset.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
             NumericInputDialogIntegerOnly = true;
             NumericInputDialogAllowNegative = false;
             _numericInputDialogCallback = (value) =>
@@ -601,7 +598,7 @@ public partial class MainViewModel
         {
             if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
             {
-                StatusMessage = "Open a field first before importing a boundary";
+                ReportFailure("Open a field first before importing a boundary");
                 return;
             }
 
@@ -627,7 +624,7 @@ public partial class MainViewModel
         {
             if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
             {
-                StatusMessage = "Open a field first to add boundary";
+                ReportFailure("Open a field first to add boundary");
                 return;
             }
             ShowBoundaryMapDialogCommand?.Execute(null);
@@ -637,14 +634,14 @@ public partial class MainViewModel
         {
             if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
             {
-                StatusMessage = "Open a field first";
+                ReportFailure("Open a field first");
                 return;
             }
 
             var tracks = SavedTracks.Where(t => t.Points.Count >= 2).ToList();
             if (tracks.Count < 2)
             {
-                StatusMessage = "Need at least 2 tracks to build a boundary";
+                ReportFailure("Need at least 2 tracks to build a boundary");
                 return;
             }
 
@@ -656,19 +653,21 @@ public partial class MainViewModel
             }
 
             var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
-            var boundary = _boundaryFileService.LoadBoundary(fieldPath) ?? new Boundary();
+            var boundary = LoadFieldBoundary(fieldPath) ?? new Boundary();
 
             if (PendingBoundaryType == BoundaryType.Inner)
                 boundary.InnerBoundaries.Add(polygon);
             else
                 boundary.OuterBoundary = polygon;
 
-            _boundaryFileService.SaveBoundary(boundary, fieldPath);
+            SaveFieldBoundary(boundary, fieldPath);
             SetCurrentBoundary(boundary);
             RefreshBoundaryList();
+            string done = PendingBoundaryType == BoundaryType.Inner ? "" : OuterBoundaryChanged();
 
             var typeLabel = PendingBoundaryType == BoundaryType.Inner ? "Inner boundary" : "Boundary";
-            StatusMessage = $"{typeLabel} built from {tracks.Count} tracks ({polygon.Points.Count} points)";
+            StatusMessage = $"{typeLabel} built from {tracks.Count} tracks ({polygon.Points.Count} points)"
+                + (done.Length > 0 ? $"; {done}" : "");
             PendingBoundaryType = BoundaryType.Outer;
         });
 
@@ -676,7 +675,7 @@ public partial class MainViewModel
         {
             if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
             {
-                StatusMessage = "Open a field first before recording a boundary";
+                ReportFailure("Open a field first before recording a boundary");
                 return;
             }
 
@@ -693,9 +692,11 @@ public partial class MainViewModel
         {
             if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
             {
-                StatusMessage = "Open a field first before recording a boundary";
+                ReportFailure("Open a field first before recording a boundary");
                 return;
             }
+
+            if (!OuterBoundaryForInner()) return;
 
             _boundaryRecordingService.StartRecording(BoundaryType.Inner);
             StatusMessage = "Recording inner boundary (obstacle)";
@@ -705,9 +706,11 @@ public partial class MainViewModel
         {
             if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
             {
-                StatusMessage = "Open a field first before recording a boundary";
+                ReportFailure("Open a field first before recording a boundary");
                 return;
             }
+
+            if (!OuterBoundaryForInner()) return;
 
             IsBoundaryPanelVisible = false;
             IsBoundaryPlayerPanelVisible = true;
@@ -722,9 +725,10 @@ public partial class MainViewModel
         {
             if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
             {
-                StatusMessage = "Open a field first to add boundary";
+                ReportFailure("Open a field first to add boundary");
                 return;
             }
+            if (!OuterBoundaryForInner()) return;
             PendingBoundaryType = BoundaryType.Inner;
             ShowBoundaryMapDialogCommand?.Execute(null);
         });
@@ -733,14 +737,14 @@ public partial class MainViewModel
         {
             if (SelectedBoundaryIndex < 0)
             {
-                StatusMessage = "Select a boundary first";
+                ReportFailure("Select a boundary first");
                 return;
             }
 
             if (string.IsNullOrEmpty(CurrentFieldName)) return;
 
             var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
-            var boundary = _boundaryFileService.LoadBoundary(fieldPath);
+            var boundary = LoadFieldBoundary(fieldPath);
             if (boundary == null) return;
 
             // Map selected index to the correct boundary polygon
@@ -750,11 +754,9 @@ public partial class MainViewModel
             {
                 if (currentIndex == SelectedBoundaryIndex)
                 {
-                    boundary.OuterBoundary.IsDriveThrough = !boundary.OuterBoundary.IsDriveThrough;
-                    _boundaryFileService.SaveBoundary(boundary, fieldPath);
-                    SetCurrentBoundary(boundary);
-                    RefreshBoundaryList();
-                    StatusMessage = $"Outer boundary drive-through: {(boundary.OuterBoundary.IsDriveThrough ? "On" : "Off")}";
+                    // Drive-through is an inner boundary's flag (an obstacle the U-turn and the
+                    // headland may cross). AgOpenGPS keeps the outer one off and offers no toggle.
+                    StatusMessage = "The outer boundary can't be drive-through";
                     return;
                 }
                 currentIndex++;
@@ -767,9 +769,9 @@ public partial class MainViewModel
                     if (currentIndex == SelectedBoundaryIndex)
                     {
                         boundary.InnerBoundaries[i].IsDriveThrough = !boundary.InnerBoundaries[i].IsDriveThrough;
-                        _boundaryFileService.SaveBoundary(boundary, fieldPath);
+                        SaveFieldBoundary(boundary, fieldPath);
                         SetCurrentBoundary(boundary);
-                        RefreshBoundaryList();
+                        RefreshBoundaryList(keepSelection: true);
                         StatusMessage = $"Inner {i + 1} drive-through: {(boundary.InnerBoundaries[i].IsDriveThrough ? "On" : "Off")}";
                         return;
                     }
@@ -782,14 +784,14 @@ public partial class MainViewModel
         {
             if (SelectedBoundaryIndex < 0)
             {
-                StatusMessage = "Select a boundary first";
+                ReportFailure("Select a boundary first");
                 return;
             }
 
             if (string.IsNullOrEmpty(CurrentFieldName)) return;
 
             var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
-            var boundary = _boundaryFileService.LoadBoundary(fieldPath);
+            var boundary = LoadFieldBoundary(fieldPath);
             if (boundary == null) return;
 
             int currentIndex = 0;
@@ -799,9 +801,9 @@ public partial class MainViewModel
                 if (currentIndex == SelectedBoundaryIndex)
                 {
                     boundary.OuterBoundary.IsHard = !boundary.OuterBoundary.IsHard;
-                    _boundaryFileService.SaveBoundary(boundary, fieldPath);
+                    SaveFieldBoundary(boundary, fieldPath);
                     SetCurrentBoundary(boundary);
-                    RefreshBoundaryList();
+                    RefreshBoundaryList(keepSelection: true);
                     StatusMessage = $"Outer boundary hard: {(boundary.OuterBoundary.IsHard ? "On" : "Off")}";
                     return;
                 }
@@ -815,9 +817,9 @@ public partial class MainViewModel
                     if (currentIndex == SelectedBoundaryIndex)
                     {
                         boundary.InnerBoundaries[i].IsHard = !boundary.InnerBoundaries[i].IsHard;
-                        _boundaryFileService.SaveBoundary(boundary, fieldPath);
+                        SaveFieldBoundary(boundary, fieldPath);
                         SetCurrentBoundary(boundary);
-                        RefreshBoundaryList();
+                        RefreshBoundaryList(keepSelection: true);
                         StatusMessage = $"Inner {i + 1} hard: {(boundary.InnerBoundaries[i].IsHard ? "On" : "Off")}";
                         return;
                     }
@@ -840,25 +842,32 @@ public partial class MainViewModel
         try
         {
             var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
-            var boundary = _boundaryFileService.LoadBoundary(fieldPath) ?? new Boundary();
+            var boundary = LoadFieldBoundary(fieldPath) ?? new Boundary();
 
             var outer = new BoundaryPolygon();
             foreach (var (e, n) in points)
                 outer.Points.Add(new BoundaryPoint(e, n, 0));
             boundary.OuterBoundary = outer;
 
-            _boundaryFileService.SaveBoundary(boundary, fieldPath);
+            SaveFieldBoundary(boundary, fieldPath);
             SetCurrentBoundary(boundary);
             RefreshBoundaryList();
-            StatusMessage = $"Boundary created with {points.Count} points";
+            string done = OuterBoundaryChanged();
+            StatusMessage = $"Boundary created with {points.Count} points" + (done.Length > 0 ? $"; {done}" : "");
             // The Bing aerial covering this boundary is captured + saved as the field
             // background by the host after this returns (see boundary.fromMapPoints).
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Error creating boundary: {ex.Message}";
+            ReportFailure($"Error creating boundary: {ex.Message}");
         }
     }
+
+    /// <summary>The open field's outer boundary (E/N), for Get Aerial Imagery; null without one.</summary>
+    public System.Collections.Generic.IReadOnlyList<(double E, double N)>? OuterBoundaryPoints() =>
+        IsFieldOpen && State.Field.CurrentBoundary?.OuterBoundary is { IsValid: true } outer
+            ? outer.Points.Select(p => (p.Easting, p.Northing)).ToList()
+            : null;
 
     /// <summary>
     /// Padded WGS84 + Web-Mercator bounds for the aerial that should cover a drawn
@@ -889,6 +898,19 @@ public partial class MainViewModel
         return (nw.Latitude, nw.Longitude, se.Latitude, se.Longitude, mxMin, mxMax, myMin, myMax);
     }
 
+    /// <summary>
+    /// An inner boundary (an obstacle) lies inside the field's outer boundary, so the field
+    /// needs its outer first: true when it has one, else a failure and false (#621). AgOpenGPS
+    /// makes the first boundary recorded the outer and only later ones inners.
+    /// </summary>
+    private bool OuterBoundaryForInner()
+    {
+        var fieldPath = Path.Combine(_settingsService.Settings.FieldsDirectory, CurrentFieldName);
+        if (LoadFieldBoundary(fieldPath)?.OuterBoundary?.IsValid == true) return true;
+        ReportFailure("Record the field boundary first: an inner boundary goes inside it");
+        return false;
+    }
+
     private static (double x, double y) MercFromLonLat(double lon, double lat)
     {
         const double R = 6378137.0;
@@ -898,7 +920,7 @@ public partial class MainViewModel
 
     /// <summary>
     /// Apply a host-assembled aerial PNG as the field background (remote/web Draw-on-map).
-    /// Reuses the native SaveBackgroundImage path (copies to BackPic.png + geo-ref + reload).
+    /// Reuses SaveBackgroundImage (copies the image into the field, places it in field.geojson, reloads).
     /// </summary>
     public void ApplyCapturedBackground(string pngPath, double nwLat, double nwLon, double seLat, double seLon,
         double mercMinX, double mercMaxX, double mercMinY, double mercMaxY)

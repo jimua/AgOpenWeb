@@ -1,3 +1,7 @@
+// AgOpenWeb
+// Copyright (C) 2024-2026 AgOpenWeb Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 namespace AgOpenWeb.Models.State;
 
 /// <summary>
@@ -18,6 +22,9 @@ public sealed class OperationState
     /// <summary>Contour/track mode toggle is on (the UI button — NOT the pipeline's
     /// GuidanceState.IsContourMode "currently driving a contour" flag).</summary>
     public bool IsContourOn { get; set; }
+    public bool IsContourLocked { get; set; } // contour lock button (#110)
+    /// <summary>The contour strip being followed (drawn as points), or null (#110).</summary>
+    public System.Collections.Generic.IReadOnlyList<AgOpenWeb.Models.Base.Vec3>? ContourRef { get; set; }
 
     /// <summary>Auto U-turn (YouTurn) arming is enabled.</summary>
     public bool IsYouTurnEnabled { get; set; }
@@ -28,4 +35,11 @@ public sealed class OperationState
 
     /// <summary>A track is available to steer to (else the AutoSteer button greys).</summary>
     public bool IsAutoSteerAvailable { get; set; }
+
+    /// <summary>Ref Nudge panel (#489): how far the selected track was moved since the panel
+    /// opened, in m, the driver's right positive.</summary>
+    public double RefNudgeMoved { get; set; }
+
+    /// <summary>The selected track has a reference move that is not saved yet.</summary>
+    public bool RefNudgePending { get; set; }
 }

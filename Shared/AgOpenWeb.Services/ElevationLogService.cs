@@ -1,22 +1,26 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// Licensed under GNU GPL v3. See LICENSE.md.
+// SPDX-License-Identifier: Apache-2.0
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using AgOpenWeb.Services.Interfaces;
 
 namespace AgOpenWeb.Services;
 
 /// <summary>
-/// Logs GPS elevation data to Elevation.txt in the field directory.
-/// Matches legacy AgOpenGPS format and behavior.
+/// Logs GPS elevation data to elevation.csv in the field directory: one header row, then a row
+/// per sample once the vehicle has moved more than 2.9 m (AgOpenGPS's sampling).
 /// </summary>
 public class ElevationLogService : IElevationLogService
 {
+    public const string FileName = "elevation.csv";
+    private const string Header = "latitude,longitude,elevation,fixQuality,easting,northing,heading,roll";
+
     private const double MinDistanceMeters = 2.9;
     private const double MinDistanceSq = MinDistanceMeters * MinDistanceMeters;
 
@@ -25,17 +29,6 @@ public class ElevationLogService : IElevationLogService
     private double _lastNorthing = double.NaN;
 
     public bool IsEnabled { get; set; }
-
-    public void CreateHeader(string fieldDirectory, double startLat, double startLon)
-    {
-        var path = Path.Combine(fieldDirectory, "Elevation.txt");
-        using var writer = new StreamWriter(path, false, Encoding.UTF8);
-        writer.WriteLine($"$Elevation");
-        writer.WriteLine($"Timestamp,{DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-        writer.WriteLine($"StartLat,{startLat.ToString("F7", CultureInfo.InvariantCulture)}");
-        writer.WriteLine($"StartLon,{startLon.ToString("F7", CultureInfo.InvariantCulture)}");
-        writer.WriteLine("Latitude,Longitude,Elevation,FixQuality,Easting,Northing,Heading,Roll");
-    }
 
     public void LogPoint(double latitude, double longitude, double altitude,
         double antennaHeight, int fixQuality,
@@ -66,11 +59,7 @@ public class ElevationLogService : IElevationLogService
     public void Flush(string fieldDirectory)
     {
         if (_buffer.Length == 0) return;
-
-        var path = Path.Combine(fieldDirectory, "Elevation.txt");
-
-        // Append to existing file (create if needed)
-        File.AppendAllText(path, _buffer.ToString(), Encoding.UTF8);
+        AppendRows(fieldDirectory, _buffer.ToString());
         _buffer.Clear();
     }
 
@@ -79,5 +68,38 @@ public class ElevationLogService : IElevationLogService
         _buffer.Clear();
         _lastEasting = double.NaN;
         _lastNorthing = double.NaN;
+    }
+
+    // Plain UTF-8: a byte-order mark shows up as junk before "latitude" in some CSV tools.
+    private static readonly Encoding Utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
+    private static void AppendRows(string fieldDirectory, string rows)
+    {
+        var path = Path.Combine(fieldDirectory, FileName);
+        if (!File.Exists(path))
+            File.WriteAllText(path, Header + Environment.NewLine, Utf8);
+        File.AppendAllText(path, rows, Utf8);
+    }
+
+    /// <summary>
+    /// Import AgOpenGPS's Elevation.txt (field metadata lines, then a
+    /// "Latitude,Longitude,Elevation,Quality,Easting,Northing,Heading,Roll" header and rows in
+    /// that order) into elevation.csv, then delete it.
+    /// </summary>
+    public static void ImportAgOpenGpsFile(string fieldDirectory)
+    {
+        var path = Path.Combine(fieldDirectory, "Elevation.txt");
+        if (!File.Exists(path))
+            return;
+        var lines = File.ReadAllLines(path);
+        int header = Array.FindIndex(lines, l => l.TrimStart().StartsWith("Latitude,", StringComparison.OrdinalIgnoreCase));
+        var rows = header < 0 ? Enumerable.Empty<string>() : lines.Skip(header + 1)
+            .Select(l => l.Trim())
+            .Where(l => l.Split(',') is { Length: 8 } f &&
+                        f.All(x => double.TryParse(x, NumberStyles.Float, CultureInfo.InvariantCulture, out _)));
+        var text = string.Concat(rows.Select(r => r + Environment.NewLine));
+        if (text.Length > 0)
+            AppendRows(fieldDirectory, text);
+        File.Delete(path);
     }
 }

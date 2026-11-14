@@ -1,0 +1,577 @@
+# CLAUDE.md - AgOpenWeb3
+
+This file provides guidance to Claude Code when working with this repository.
+
+**Key documentation:**
+- **[Docs/ARCHITECTURE.md](Docs/ARCHITECTURE.md)** - Full architecture: services, state management, data flow
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contributor guide with cross-platform parity rules
+- **[PGN.md](PGN.md)** - UDP packet protocol for hardware communication
+- **[Docs/TRANSLATIONS.md](Docs/TRANSLATIONS.md)** - UI strings and Weblate
+- **[Docs/GPS_RECEIVERS.md](Docs/GPS_RECEIVERS.md)** - Receivers, sentence families, the bridge contract, per-receiver setup
+- **[Docs/WEB_CLIENT.md](Docs/WEB_CLIENT.md)** - The web client's files (`js/`, `css/`), how the scripts load, adding a panel
+- **[Docs/ADD_ON_CARDS.md](Docs/ADD_ON_CARDS.md)** - For add-on developers: web cards and VT cards, gateways, discovery
+- **[Docs/FIELD_FILE_FORMATS.md](Docs/FIELD_FILE_FORMATS.md)** - `field.geojson`, sidecars and coverage tiles: the spec for tools that read or write fields
+
+## Project Overview
+
+AgOpenWeb3 is a cross-platform agricultural GPS guidance application: a .NET guidance host
+with a web UI. It's a clean rewrite of AgOpenGPS with the backend shared across every
+platform and the UI a single web client.
+
+**What it does:**
+- Real-time GPS guidance for agricultural equipment
+- Field boundary management and recording
+- Unified track guidance (AB lines and curves use same system)
+- U-turn path generation and following
+- Section control for sprayers/planters
+- NTRIP RTK corrections support
+- Configurable keyboard hotkeys
+- Integration with AgOpenGPS ecosystem via UDP
+
+## Architecture
+
+**The web client is the only UI.** `AgOpenWeb.RemoteServer` embeds a web server and serves
+the `wwwroot` CanvasKit PWA (`index.html`, the client in `js/`, its styles in `css/`, `transport.js`,
+`i18n.js`; map in `Docs/WEB_CLIENT.md`). Every head
+boots the same guidance backend (`AgOpenWeb.RemoteWiring.WebBackend`: the `MainViewModel`
+"brain" on a `HostLoopDispatcher`, plus the embedded `RemoteServerHost`) and shows that page
+in the platform's own web view; any browser on the LAN can open `http://<host>:5174` too.
+There is no native UI framework in the heads (Avalonia was removed in October 2026; the
+`VehicleSimulator` dev tool is the one Avalonia app left).
+
+```
+AgOpenWeb3/
+├── Shared/                              # Platform-agnostic code
+│   ├── AgOpenWeb.Models/            # Data models, geometry, configuration, DTOs
+│   ├── AgOpenWeb.Services/          # Business logic, GPS, NTRIP, UDP, audio (.wav embedded)
+│   ├── AgOpenWeb.ViewModels/        # MainViewModel: the headless control brain; no native UI
+│   ├── AgOpenWeb.RemoteServer/      # Embedded web server + wwwroot web client (the UI)
+│   └── AgOpenWeb.RemoteWiring/      # WebBackend host core + RemoteServer↔VM command/projector wiring
+│
+├── Platforms/                           # Thin web-view shells + platform services
+│   ├── AgOpenWeb.Desktop/           # Windows/macOS/Linux: Photino.NET launcher window, or headless daemon
+│   ├── AgOpenWeb.iOS/              # iOS/iPadOS: UIApplicationDelegate + WKWebView
+│   └── AgOpenWeb.Android/          # Android: Activity + android.webkit.WebView, foreground BackendService
+│
+├── Simulators/
+│   ├── AgOpenWeb.VirtualModules/    # Virtual GPS/steer/machine UDP modules (tests + bench)
+│   └── AgOpenWeb.VehicleSimulator/  # Standalone Avalonia dev tool (not shipped)
+│
+├── Tests/                              # NUnit test projects
+│   ├── AgOpenWeb.Models.Tests/     # Geometry, coordinate conversion
+│   ├── AgOpenWeb.Services.Tests/   # NMEA parsing, guidance, coverage, pipeline
+│   ├── AgOpenWeb.ViewModels.Tests/ # ViewModel/control-brain logic
+│   ├── AgOpenWeb.RemoteServer.Tests/ # Web host: satellite tiles, imagery capture
+│   └── AgOpenWeb.IntegrationTests/ # Test-support lib: fake settings etc. (used by Services.Tests)
+│
+├── Tools/                              # Dev scripts (i18n-extract.py, unpack-dump.sh, ...)
+├── deploy/                             # Packaging per OS (package.sh, installers, READMEs)
+├── TestRunner/                         # Legacy test harness for guidance algorithms
+└── AgOpenWeb.slnx                    # Solution file
+```
+
+### Platform Support
+
+| Platform | Project | Notes |
+|----------|---------|-------|
+| Windows | AgOpenWeb.Desktop | Launcher window (WebView2) by default, or Windows Service (headless) |
+| macOS | AgOpenWeb.Desktop | Launcher window (WKWebView) by default |
+| Linux | AgOpenWeb.Desktop | Headless systemd daemon by default; `--launcher` window (WebKitGTK) on real hardware |
+| iOS/iPadOS | AgOpenWeb.iOS | Requires Xcode 26.3+; TestFlight |
+| Android | AgOpenWeb.Android | APK build, sideload install |
+
+### Desktop modes
+
+`Program.cs` picks the mode: `--headless` (display-less daemon: `HeadlessHost`), `--launcher`
+(the Photino.NET window: `Launcher/LauncherEntry`), no flag = launcher on Windows and macOS,
+headless on Linux. `--launcher --console` shows the supervisor page (start/stop, LAN URL)
+instead of the UI, for a box that only serves other devices. The backend is identical in
+every mode (`BackendHost`).
+
+## Build Commands
+
+```bash
+# Build and run Desktop (works on Windows, macOS, Linux)
+dotnet build Platforms/AgOpenWeb.Desktop/AgOpenWeb.Desktop.csproj
+dotnet run --project Platforms/AgOpenWeb.Desktop/AgOpenWeb.Desktop.csproj            # launcher window
+dotnet run --project Platforms/AgOpenWeb.Desktop/AgOpenWeb.Desktop.csproj -- --headless   # daemon; UI at http://localhost:5174
+
+# Build iOS (requires macOS with Xcode 26.3+)
+dotnet build Platforms/AgOpenWeb.iOS/AgOpenWeb.iOS.csproj -c Debug -f net10.0-ios -r iossimulator-arm64
+
+# iOS on a device: Release signs for the App Store, so for a directly installable optimized build use
+dotnet build Platforms/AgOpenWeb.iOS/AgOpenWeb.iOS.csproj -c Release -f net10.0-ios -r ios-arm64 \
+  -p:MtouchUseLlvm=false "-p:CodesignKey=Apple Development" -p:CodesignProvision=Automatic
+# (LLVM off builds in ~3 min instead of ~15; delete bin/obj for ios-arm64 after switching branches)
+xcrun devicectl device install app --device <udid> Platforms/AgOpenWeb.iOS/bin/Release/net10.0-ios/ios-arm64/AgOpenWeb.iOS.app
+
+# Build Android APK
+dotnet build Platforms/AgOpenWeb.Android/AgOpenWeb.Android.csproj
+
+# Build entire solution
+dotnet build AgOpenWeb.slnx
+
+# Run tests
+dotnet test Tests/AgOpenWeb.Models.Tests/ ; dotnet test Tests/AgOpenWeb.Services.Tests/ ; dotnet test Tests/AgOpenWeb.ViewModels.Tests/ ; dotnet test Tests/AgOpenWeb.RemoteServer.Tests/
+```
+
+## Key Design Decisions
+
+### Rendering: the web client
+The map is drawn by the web client with CanvasKit (Skia compiled to WebAssembly, bundled in
+`wwwroot/vendor` for offline cab use). The host sends state over a WebSocket as compact binary
+frames (`WireCodec` on the host, `transport.js` on the client): a 10 Hz `Tick` (pose, cross-track,
+sections), the `Scene` (tracks, boundary, imagery extent), `Config`, `Status`, coverage as an
+init + incremental cell deltas, and smaller frames for dialogs, prompts, sounds and toasts.
+Position between ticks is extrapolated client-side (`RENDER_DELAY`); the pose estimator on the
+host does the same for the 100 Hz control loop.
+Long lines cost the most to draw: Skia strokes a bent, anti-aliased path through a CPU mask the
+size of the path on the screen, so a curve that goes round the field costs a screen-sized mask.
+Lines from the `Scene` are drawn with `strokeFixedPtsSk` (`js/map-draw.js`: a copy without the
+points that add nothing, made once per array; the host replaces its arrays, the page never edits
+them); a line the page draws or edits uses `strokePtsSk`. Lines in one style share one path
+(`strokeCmdsSk`), as the extra guidelines do.
+
+### Control authority
+Several browsers may be connected; only one holds control (`ControlAuthority`, deadman model).
+Every command is dropped unless the sender holds fresh control: the others are observers, who
+see everything and change nothing (#397). `ObserverIds` lists the few requests an observer may
+send. A client can't take control from a live operator, only fill an empty seat.
+The deadman (1.5 s without the holder's presence) runs on a timer of its own. The page sends
+presence on a timer and on every frame from the host (`sendPresence` in `js/control.js`): a
+minimized window or a background tab gets its timers throttled but still hears the host (#766). When control
+ends, `MainViewModel.OnBrowserControlEnded` turns off AutoSteer, Free Drive, the sections (a
+section On by hand too) and the steer wizard, and the next screen to take control is told why.
+`WebSocketHub` gives each browser its own outgoing queue: a broadcast never waits on a socket,
+and a browser that stops reading for 15 s is cut off (it reconnects and gets a fresh seed).
+The page drops a link that has carried no frame for 2.5 s and reconnects (`transport.js`).
+
+### Section control timing
+`SectionControlService` runs every section by its own button state (Off / Auto / On); the master
+buttons only set them all, as AgOpenGPS. In Auto the look-ahead asks for on/off early: the
+**module** gets that request at once (`IsCommandedOn` → PGN 239/229 bits), while `IsOn` and the
+coverage map wait the look-ahead time, so the valve acts at the edge and the map paints where
+the product lands (#707). With look-ahead off at 0 the turn-off delay is a plain overrun of both. Look-ahead
+installs at AgOpenGPS's 1.0 s on / 0.5 s off (`ToolConfig.DefaultLookAheadOn/Off`): the time it
+assumes a sprayer's valves take; saved profiles keep their own.
+The control loop sends the PGNs at 100 Hz, PGN 229 every tick whatever the section count (the
+ISOBUS task controller reads sections from 229 only).
+
+### The simulator never steers the module
+The steer module stays on the network while the simulator runs. While the simulator is the chosen GPS
+source (`GpsPipelineService.SetSimulatorEnabled`, from the moment it is chosen) `VehicleState.SimulatorHoldsSteering`
+is set (`IAutoSteerService.SetSimulatorHoldsSteering`) and `PgnBuilder.BuildAutoSteerPgn` sends status 0:
+the module would open the lock valve and steer a parked tractor to a simulated line. AutoSteer stays
+engaged in the app, so the simulator follows the line, and the red "module not steering" button is not
+shown. Turning the simulator on or off (the receiver's fix arriving does it too) takes AutoSteer off
+first. Free Drive is the operator's own test of the steering and still sends status 1; PGN 239/229
+(sections, lift) still go to the machine module, as a bench test of a sprayer needs. The hold is the
+app's simulator, not the label on a fix: the scenario rigs feed their own fixes as
+`GpsSentenceType.Simulator` with the simulator off, and are steered.
+
+**Bench choice** (a steering motor on the desk): not in the UI yet (an enhancement). The seam is there:
+`MainViewModel.IsSimulatorDrivingSteering` (`GpsPipelineService.SetSimulatorSteersModule`) lets AutoSteer on
+the simulator send status 1; never saved, dropped when the simulator is turned off and when the steer module
+goes silent, and a change takes AutoSteer off first. The web client harness reads PGN 254 on the simulator,
+so its rig sets it (`WebClientRig`).
+
+### Host ↔ client commands
+The client sends `id|arg` strings (`transport.send('track.select|0')`). `RemoteServerWiring`
+(in `RemoteWiring`) switches on the id and calls the VM; `RemoteServerWiring.Helpers.cs` holds
+the `config.set|key:value` table. Projectors (`SceneProjector`, `CoverageProjector`) build the
+DTOs in `Contracts.cs`, `WireCodec` encodes them, `MapBroadcaster` schedules the sends.
+
+### MainViewModel is the control brain
+`MainViewModel` has no view. It runs on the single `HostLoopDispatcher` thread (the "UI
+thread" stand-in, `IUiDispatcher`), coordinates services, and is driven only through
+`RemoteServerWiring`. It is a large partial class split by domain:
+
+| File | Domain |
+|------|--------|
+| `MainViewModel.cs` | Core state, constructor, DI, properties |
+| `MainViewModel.Commands.Track.cs` | Track/AB line commands |
+| `MainViewModel.Commands.Boundary.cs` | Boundary, headland, AgShare commands |
+| `MainViewModel.Commands.Fields.cs` | Field open/close/create, jobs |
+| `MainViewModel.Commands.Ntrip.cs` | NTRIP profile management |
+| `MainViewModel.Commands.Navigation.cs` | View settings, camera, day/night |
+| `MainViewModel.Commands.Hotkeys.cs` | Hotkey configuration and dispatch |
+| `MainViewModel.Commands.Settings.cs` | App directories, language, reset settings |
+| `MainViewModel.Commands.Simulator.cs` | Simulator controls |
+| `MainViewModel.Commands.Configuration.cs` | Vehicle/tool configuration |
+| `MainViewModel.Commands.Wizards.cs` | Setup wizards |
+| `MainViewModel.YouTurn.cs` | U-turn path generation and following |
+| `MainViewModel.Guidance.cs` | Guidance algorithm orchestration |
+| `MainViewModel.GpsHandling.cs` | GPS data processing |
+| `MainViewModel.SectionControl.cs` | Section on/off logic |
+| `MainViewModel.BoundaryRecording.cs` | Boundary recording state |
+| `MainViewModel.Ntrip.cs` | NTRIP connection management |
+| `MainViewModel.Simulator.cs` | GPS simulator state |
+| `MainViewModel.ViewSettings.cs` | Display/view settings |
+| `MainViewModel.FieldData.cs` | Field data card: trip distance, boundary area |
+| `MainViewModel.*.Remote.cs` | Web-client-only flows (field builder edits, headland, KML, tram) |
+
+### ConfigurationStore
+`ConfigurationStore` is a reactive singleton holding all runtime configuration (vehicle, tool, guidance, hotkeys, etc.). It syncs to/from `AppSettings` JSON via `ConfigurationService`.
+
+```csharp
+ConfigStore.Vehicle.AntennaHeight    // Vehicle config
+ConfigStore.Tool.ToolWidth           // Tool/implement config
+ConfigStore.Hotkeys.GetActionForKey("A")  // Hotkey lookup
+```
+
+### Unified Track Architecture
+**Key insight from AgOpenGPS creator Brian:** "An AB line is just a curve with 2 points."
+
+All guidance track types use a single `Track` model (`Shared/AgOpenWeb.Models/Track/Track.cs`):
+
+```csharp
+public class Track
+{
+    public string Name { get; set; }
+    public List<Vec3> Points { get; set; }  // AB lines have 2 points, curves have N
+    public TrackMode Mode { get; set; }
+    public bool IsVisible { get; set; }
+    public double NudgeDistance { get; set; }
+
+    // Computed properties
+    public bool IsABLine => Points.Count == 2;
+    public bool IsCurve => Points.Count > 2;
+}
+```
+
+**Single guidance service** (`TrackGuidanceService`) handles both Pure Pursuit and Stanley algorithms for all track types. This replaced 4 separate guidance services and reduced ~2,100 lines of duplicated code.
+
+**Shared utilities** in `GeometryMath.cs`:
+- `Distance()`, `DistanceSquared()` - various overloads for Vec2/Vec3
+- `ToDegrees()`, `ToRadians()` - angle conversion
+- `IsPointInPolygon()` - boundary checks
+- `PIBy2`, `twoPI` - common constants
+
+### File Format Philosophy
+AgOpenWeb may use different/improved formats from AgOpenGPS when it benefits code simplicity or features. Provide **one-way import** from AgOpenGPS formats rather than maintaining full backwards compatibility.
+
+- **Formats**: a field is `field.geojson` (origin, boundaries, headland, tracks, flags, headland lines, background image placement) beside `background.png`, `contours.geojson`, `recorded-paths.geojson` and `elevation.csv`; a job's coverage is world-anchored tiles under `jobs/<task>/coverage/`. Profiles are JSON; the spec for other programs is `Docs/FIELD_FILE_FORMATS.md` (keep it in step with the code).
+- **Migration**: AgOpenGPS files found in a field folder are imported once (on open) and **deleted**; AgOpenWeb never writes AgOpenGPS formats. AgOpenGPS 6.8.2+ profiles copied into the data folder (`VehicleProfiles/`, `ToolProfiles/`, `Environment/environment.xml` or, on a fresh 6.8.2+ install, `DefaultEnvironment.xml`, as AgOpenGPS reads them) and AgIO's NTRIP caster (`AgIO/*.xml`; not the one AgIO ships with, and the default only if NTRIP was on there) are converted at start the same way (`AgOpenGpsProfileImport`, one mapping in `AgOpenGpsSettings`, which turns AgOpenGPS's signs and units into AgOpenWeb's; `NtripProfileService.ImportAgIoCastersAsync`), a profile of the same name left alone. No compatibility code for files from older AgOpenWeb builds (no installed base yet). See `Plans/Completed/FILE_FORMAT_MODERNIZATION_PLAN.md`.
+
+## Technology Stack
+
+- **.NET 10.0** - Target framework
+- **Web client** - HTML/JS, CanvasKit (Skia WASM); no framework
+- **Photino.NET 4** - Desktop launcher window (WebView2 / WKWebView / WebKitGTK)
+- **WKWebView / android.webkit.WebView** - the iOS and Android shells
+- **CommunityToolkit.Mvvm** - ObservableObject/RelayCommand in the control brain
+- **Microsoft.Extensions.DependencyInjection / Hosting** - DI, daemon lifetime (systemd, Windows Service)
+- **SkiaSharp 3.119.4** - server-side imagery work (`BoundaryImageryCapture`, `/backpic.png`); each head references its native package
+- **NUnit 4 + NSubstitute** - Testing
+
+## Key Files Reference
+
+| File | Purpose |
+|------|---------|
+| `Shared/AgOpenWeb.ViewModels/MainViewModel.cs` | Control brain, constructor, DI |
+| `Shared/AgOpenWeb.RemoteWiring/WebBackend.cs` | Boots the backend every head uses |
+| `Shared/AgOpenWeb.RemoteWiring/RemoteServerWiring.cs` | Web command → VM routing |
+| `Shared/AgOpenWeb.RemoteServer/RemoteServerHost.cs` | Embedded web server, routes, static assets |
+| `Shared/AgOpenWeb.RemoteServer/SceneProjector.cs` | Host state → DTOs |
+| `Shared/AgOpenWeb.RemoteServer/WireCodec.cs` | Binary wire encoding (pair with `wwwroot/transport.js`) |
+| `Shared/AgOpenWeb.RemoteServer/wwwroot/js/` | The web client, one classic script per feature (`Docs/WEB_CLIENT.md`) |
+| `Shared/AgOpenWeb.RemoteServer/wwwroot/i18n.js` | Client-side translation |
+| `Shared/AgOpenWeb.Models/Track/Track.cs` | Unified track model (AB lines + curves) |
+| `Shared/AgOpenWeb.Models/Base/GeometryMath.cs` | Shared geometry utilities |
+| `Shared/AgOpenWeb.Models/Configuration/ConfigurationStore.cs` | Reactive config singleton |
+| `Shared/AgOpenWeb.Services/Track/TrackGuidanceService.cs` | Pure Pursuit + Stanley guidance |
+| `Shared/AgOpenWeb.Services/YouTurn/YouTurnStateMachine.cs` | U-turn planning and following |
+| `Shared/AgOpenWeb.Services/Coverage/CoverageMapService.cs` | Coverage detection + display grids, tiles |
+| `Shared/AgOpenWeb.Services/Ntrip/NtripSession.cs` | NTRIP connection: request, reply, retry, timeouts, status |
+| `Shared/AgOpenWeb.Services/NtripClientService.cs` | NTRIP RTK corrections: frames the stream, forwards it to the GPS module |
+| `Shared/AgOpenWeb.Services/ConfigurationService.cs` | AppSettings ↔ ConfigurationStore sync |
+| `Platforms/AgOpenWeb.Desktop/Program.cs` | Desktop mode selection |
+| `Platforms/AgOpenWeb.Desktop/Launcher/LauncherEntry.cs` | Photino window: all-in-one app or `--console` supervisor |
+| `Platforms/AgOpenWeb.iOS/LauncherViewController.cs` | iOS head: WKWebView over WebBackend |
+| `Platforms/AgOpenWeb.Android/MainActivity.cs` | Android head: WebView, Back/Exit, startup probe |
+
+## Service Interfaces
+
+Services use interface-based design in `Shared/AgOpenWeb.Services/Interfaces/`:
+- `ITrackGuidanceService` - Unified guidance (Pure Pursuit + Stanley) for all track types
+- `IGpsService` - GPS data processing and position updates
+- `IUdpCommunicationService` - UDP communication with AgOpenGPS modules
+- `INtripClientService` - NTRIP caster connections for RTK
+- `INetworkWatcher` - the one place that notices network changes (plus a 30 s heartbeat); UDP discovery, NTRIP retry and the bug report outbox subscribe in that order
+- `IFieldService` - Field loading/saving/management
+- `IBoundaryRecordingService` - Recording field boundaries
+- `IMapService` - Historical map hook; every head registers `NullMapService` (the web client renders)
+- `IConfigurationService` - AppSettings ↔ ConfigurationStore sync, vehicle profiles
+- `IVehicleProfileService` - Vehicle profile CRUD
+- `INtripProfileService` - NTRIP profile CRUD
+- `IAutoSteerService` - Zero-copy GPS→steering pipeline
+- `ISettingsService` - AppSettings JSON persistence
+- `ICoverageMapService` - Worked area tracking
+- `ISectionControlService` - Automatic section on/off based on coverage/boundaries
+- `IUiDispatcher` / `IUiTimerFactory` - the host-loop thread the VM runs on (`HostLoopDispatcher`)
+
+## Platform-Specific Code
+
+Platform projects contain only what **must** differ per platform: the process entry, the web
+view shell, DI setup, and platform services (battery, data root, imagery capture process).
+Everything else lives in `Shared/`.
+
+### Desktop
+- `Program.cs` - mode selection (see above); the imagery-capture child process entry
+- `HeadlessHost.cs` / `BackendHost.cs` - daemon lifetime; the backend used by both modes
+- `Launcher/` - `LauncherEntry` (Photino window), `WebViewLauncher` (all-in-one), `ConsolePage` (`--console` HTML supervisor), `ScreenAwake`
+- `ImageryCaptureProcess.cs` - Skia imagery compositing in a throwaway child process (crash isolation)
+- `DependencyInjection/ServiceCollectionExtensions.cs` - DI setup
+
+### iOS
+- `AppDelegate.cs` - window, landscape lock, saves on background/terminate
+- `LauncherViewController.cs` - WKWebView, startup + retry, external links to Safari, keep screen on
+- `IosImageryCapture.cs` - imagery capture in-process
+- `Services/IOSBatteryService.cs`, `DependencyInjection/`, `Info.plist`
+
+### Android
+- `AndroidApp.cs` - `Application`; `AndroidDataRoot` init; holds `Services`
+- `MainActivity.cs` - WebView, probe-and-retry startup (#73), Back → "Exit AgOpenWeb?", immersive mode, keep screen on
+- `LauncherWebClients.cs` - navigation policy, external links, console → logcat
+- `BackendService.cs` - foreground service owning the backend (survives backgrounding)
+- `WebKeyboardBridge.cs` - `window.agnative.hideKeyboard()`
+
+What each shell must provide to the web UI (JS + WASM, audio without a gesture, `window.open`
+to the system browser, keep the screen awake, localhost HTTP) is listed in
+`Plans/Completed/AVALONIA_REMOVAL_PLAN.md`.
+
+## Common Tasks
+
+### Adding a web command
+1. In the feature's file in `js/`, send it: `transport.send('mything.do|' + arg)`.
+2. Route it in `RemoteServerWiring.cs` (or a `config.set` key in `RemoteServerWiring.Helpers.cs`) to a VM method or command.
+3. It needs control automatically; add it to `ObserverIds` only if it changes nothing.
+
+### Showing new state in the client
+1. Add it to the DTO in `Contracts.cs`, fill it in `SceneProjector` (or the relevant projector).
+2. Encode it in `WireCodec.cs` and decode it in the same order in `transport.js`.
+3. Render it in the feature's file in `js/`. Frames are versioned by content hash where that matters (`SceneProjector`).
+
+### Adding UI text
+Write it in English; `index.html` needs nothing more, and strings in `js/` use `tr('…')`
+(`tr('Pass {n}', { n })` for values). Then run `Tools/i18n-extract.py` and commit `en.json`.
+See `Docs/TRANSLATIONS.md`.
+
+### Verifying a change in the running app
+Run the Desktop head `--headless` with `AGOPENWEB_DATA=<dir>` and drive it from a browser or
+Playwright: wait for `iHoldControl === true`, then `transport.send(...)`; read `tick`,
+`lastTick`, `scene`, `statusBar`, `config`. Kill any older instance first, or you test the
+old build on `:5174`.
+
+## NTRIP Connection Format
+`NtripSession` (`Services/Ntrip/`) makes the connection and asks with NTRIP 2.0:
+```
+GET /mountpoint HTTP/1.1
+Host: caster.example.com:2101
+Ntrip-Version: Ntrip/2.0
+User-Agent: NTRIP AgOpenWeb
+Authorization: Basic base64(username:password)
+Ntrip-GGA: $GPGGA,...
+Connection: close
+```
+A caster that did not understand it (a reply that is no NTRIP or HTTP reply, or HTTP 400 or 505) gets the
+NTRIP 1.0 request (`GET /mountpoint HTTP/1.0`, no Host or version header, the position sent right after
+the answer) once; never after a 401, 403, 404, an error text or a source table. The version that delivered
+corrections is remembered per service. `NtripResponse.Classify` sorts every reply into an `NtripCategory`
+(wrong login and unknown mount point end the session, the rest is retried after 1, 2, 4, 8, 15 s, and a
+network change ends the wait, and ends a stream that then stays quiet for 3 s, as on a move from Wi-Fi to the phone's hotspot); `NtripConnectionTester` (the Test button) opens its connection the same way.
+Every wait has a timeout (`NtripTimeouts`). Design: `Plans/Completed/NTRIP_MAIN_FALLBACK_PLAN.md`.
+
+**Main and fallback service.** Two exclusive modes (`Connections.NtripProfilePerField`, `config.set|conn.ntripProfilePerField`).
+The default is one profile (the default profile) with an optional fallback service (`NtripProfile.Fallback`): a field load
+changes nothing. With the setting on, a loaded field switches the profile and the fallback is not used. The client
+(`NtripClientService`, rules in `NtripFailover`) switches to the fallback by itself only with the profile's Auto-switch on:
+after `SwitchAfterFailures` failed attempts, or at once for a wrong login or mount point. The operator switches in both
+directions at any time (`ntrip.switch|main|fallback`, `INtripClientService.SwitchToAsync`). It **never goes back by itself**:
+while the fallback is in use after a failure, the main service is tried slowly in the background and a `MainBack` notice
+says when it answers; not when both are one login on one caster. Every switch raises `Notice` and says that RTK may be lost.
+In the web client the Network IO card keeps to the first lines and the switch; NTRIP Settings (`renderNtripSettings` in
+`js/network.js`: headline, advice, checks, the mode) shows the rest, from the `NtripSessionDto` that ends the Status frame;
+`ntrip.use|id` connects with a profile now (`MainViewModel.UseNtripProfileAsync`; the default too in the one-profile mode); the session frame carries
+the profile name and the service in use (`ConnectionState.NtripProfileName/MainText/FallbackText`). A new default profile connects at once; the
+*NTRIP active / disabled* button (`conn.ntripEnabled`) connects the default profile even with its auto-connect off. `ntrip.mountpoints` asks the caster for its
+source table (`NtripSourcetable`), answered in its own frame; a profile's fallback ends its entry in the profiles frame; `ntrip.save` carries it (`NtripProfileFields`), `ntrip.test` can test it. A switch is a toast, "the main service
+is back" is the host's confirmation dialog.
+
+### RTCM forwarding
+`NtripClientService` frames the caster's stream into RTCM 3 messages (`RtcmFramer`, after
+`ChunkedDecoder` if the reply is chunked) and queues whole messages (`RtcmQueue`): 256-byte
+datagrams about 25 ms apart, never closer than 10 ms; on a backlog the newest observation
+epoch and newest station data win, and nothing is cut mid-message. Datagrams go to the GPS
+module's own address when its position sentences have been heard in the last 10 s, else to
+the subnet broadcast (or always, with Network IO → "Broadcast corrections"). Network IO shows
+the receiver's correction age, warnings and a message table; bug report dumps carry
+`ntrip_rtcm.txt`. Design, bench results and open checks: `Plans/RTCM_FORWARDING_PLAN.md`;
+bench scripts: `Tools/rtcm-bench`.
+
+## ISOBUS virtual terminal (VT card)
+The VT cards show ISOBUS implements' own screens. `Shared/AgOpenWeb.VirtualTerminal`
+(`IVirtualTerminalService`) runs SharpIsoTerm's terminal stack on the implement bus through
+an AOW link gateway (`AppSettings.VtGateway`, port 2323; the HAT's `aow-linkd`) or an slcan USB
+adapter on the device itself (`AppSettings.VtAdapter`, a CANable; not on iOS). Gateways announcing
+themselves by DNS-SD (`_aowlink._tcp`) are listed in the card's gear by name (`AowLinkBrowser`); one
+picked from the list is kept by name too (`VtGatewayName`) and followed to a new address. One to four
+terminals (`AppSettings.VtCount`), as displays in one cab, each implement choosing its terminal in
+its own menu, one card each. Their messages and pictures go to the browsers as `Vt` (with the
+terminal) and `VtImage` frames (`VirtualTerminalRemote`), the painter is in `js/vt.js`, and each
+card sends `vt.*` commands naming its terminal. Every head has it (iOS: device builds). SharpIsoTerm
+comes as its NuGet package from its GitHub release, pinned by version and SHA-256 in
+`Shared/AgOpenWeb.VirtualTerminal/AgOpenWeb.VirtualTerminal.csproj` and fetched by the build into
+`nuget-local/` (a package source in `nuget.config`); to take a new SharpIsoTerm, change both to its
+release's. To work on SharpIsoTerm itself, build against a checkout instead:
+`dotnet build Platforms/AgOpenWeb.Desktop/AgOpenWeb.Desktop.csproj -p:SharpIsoTermDir=$HOME/Code/SharpIsoTerm`
+(an absolute path; its native libraries built with its `native/build.sh`). The service
+is disposed with the backend: on Android and iOS the process outlives it, and the library allows
+one stack per process.
+
+## Web cards and the card pane
+**Web cards** show an add-on's own web page (the HAT's pages, a rate controller's) in a card, picked
+from a bookmark list kept on the host (`AppSettings.WebCards`, `webcard.save` / `webcard.delete`,
+the `WebCards` frame); `{host}` in a URL is the AgOpenWeb host as the browser reaches it. The page
+loads from the add-on on its own origin, never through AgOpenWeb; observers get a cover over it.
+Which cards are open, and where, is the browser's (`localStorage`). `WebCards` in `js/web-cards.js`; plan:
+`Plans/ADD_ON_CARDS_PLAN.md`.
+
+**Card pane** (#456): Screen & Alerts › VT & Web Cards sets Floating (the default), Left or Right,
+per browser. In a split layout the open VT and web cards sit in a pane on that side, two to a
+tab, and the map has the rest of the window (`CardPane` in `js/card-pane.js`; cards call `track`, `shown`
+and `untrack`). The map's area is set by `setMapArea(l, r)`; what that means for new code:
+- An overlay on the map keeps clear of the pane through `--sal` / `--sar` (the map's insets: the
+  pane's width on its side, else the safe area), a full-width bar uses `--map-l` / `--map-r`, and
+  one centred with `left: 50%` adds `var(--map-dx)`. Something spanning the window (a menu panel,
+  a dialog) uses `--win-sal` / `--win-sar`.
+- `vw` is the map's width, not the window's, and the canvas starts at `mapL`: a pointer's
+  `clientX` is `clientX - mapL` on the map (`s2w`, hit tests), and a DOM label placed from `w2s`
+  adds `mapL`.
+- A card moved in the page reloads its iframe, so the pane hides and shows cards on a tab switch
+  and moves them only when the layout changes.
+- The pane is a **drawer**: Closed (the handle on the window's edge, with the count of open
+  cards), Split (⅓ to ½) or Full (over the map, which the frame loop then doesn't draw:
+  `CardPane.coversMap`; a guidance strip along the top keeps speed, distance from the line,
+  AutoSteer and sections, plus the light/steer bar above walking pace). Only the operator moves
+  it (a drag of the handle snaps on release, a tap toggles Closed); above 2 km/h it can't be
+  pulled to Full; it appears Closed when the first card opens and never closes by itself. Full sets both map insets, so everything on the
+  map is off-screen. Plan: `Plans/ADD_ON_CARDS_PLAN.md`.
+
+## Debugging Tips
+
+1. **iOS simulator issues**: Use `xcrun simctl` commands directly if `dotnet build -t:Run` fails
+2. **iOS device**: `xcrun devicectl device process launch --console --terminate-existing com.agopenweb.ios` streams the app's console; its web server is reachable from the Mac over the USB link
+3. **Android**: Debug builds enable WebView debugging (`chrome://inspect`); `adb forward tcp:5599 tcp:5174` reaches the host
+4. **A client shows something a fresh connection doesn't**: compare the incremental stream with the full snapshot (coverage deltas vs `Snapshot()`)
+5. **Bug Report Dump** (main menu) zips settings, state, the field, the active job's coverage tiles and the last 5 minutes of the GPS log (10 Hz; includes the sentence type, its pre-fusion heading and the receiver's differential age); with NTRIP in use, `ntrip_rtcm.txt` lists the RTCM messages the caster sent by type and `ntrip_session.txt` what the connection did and why it failed (no login in it; `system_info.txt` has an `NTRIP:` line with the same outcome). `system_info.txt` ends with each browser's GPU renderer, texture limit, canvas, frame rate and draw time (`diag.client`, `ClientDiagnostics`), flagged `SOFTWARE RENDERING` when the renderer is the CPU (llvmpipe, SwiftShader): such a device will not draw the map smoothly whatever the app does
+6. **iOS Release builds hang in CI**: Use Debug configuration (Release triggers AOT compilation that hangs on runners). Simulator builds run on the interpreter (`MtouchInterpreter=all` in the csproj), so they skip AOT altogether; device builds keep it
+
+## Code Style
+
+- **Cross-platform parity is mandatory.** All code MUST go in `Shared/` unless it requires platform-specific APIs. Platform projects contain only the shell, DI setup and platform services. See `CONTRIBUTING.md`.
+- The web client is plain HTML/JS: no framework, no build step. Keep its idioms (DOM overlays for text, CanvasKit for the map). Its scripts are classic scripts sharing one scope: code that runs while loading uses only earlier files, and anything asynchronous starts in `js/frame.js` (`Docs/WEB_CLIENT.md`).
+- Use dependency injection for services
+- Use shared `GeometryMath` utilities instead of duplicating distance/angle calculations
+- Anything written to disk or a wire uses `CultureInfo.InvariantCulture` (see `CONTRIBUTING.md`)
+- New `.cs`/`.js`/`.py`/`.sh` files start with the Apache 2.0 header (`// SPDX-License-Identifier: Apache-2.0`, see `CONTRIBUTING.md`); `Tools/license-headers.py` adds it, CI checks it
+
+## Testing
+
+```bash
+dotnet test Tests/AgOpenWeb.Models.Tests/
+dotnet test Tests/AgOpenWeb.Services.Tests/
+dotnet test Tests/AgOpenWeb.ViewModels.Tests/
+dotnet test Tests/AgOpenWeb.RemoteServer.Tests/
+
+# Legacy guidance algorithm test harness
+dotnet run --project TestRunner/TestRunner.csproj
+```
+
+**Test projects:**
+- `AgOpenWeb.Models.Tests` - GeometryMath, GeoConversion, boundary/curve utilities
+- `AgOpenWeb.Services.Tests` - NMEA parsing, TrackGuidanceService, coverage, pipeline, U-turn (uses the virtual UDP modules in `Simulators/AgOpenWeb.VirtualModules`)
+- `AgOpenWeb.ViewModels.Tests` - ViewModel / control-brain logic
+- `AgOpenWeb.RemoteServer.Tests` - web host: Bing tile replies, boundary imagery capture
+- `AgOpenWeb.IntegrationTests` - test-support library (fake settings etc.); not a standalone test run
+- `AgOpenWeb.VehicleToolScenarios.Tests` - Vehicle & Tool scenarios: a simulated machine (steering, implement linkage, antenna on a slope, the Boards simulator's GPS/IMU/motor) drives the whole backend; a careful operator on five vehicles and their implements, a careless one with wrong measures, signs, units, roll setup and profiles, and a settings sweep (every guidance/AutoSteer/tool/vehicle setting flipped: did the steer angle, a PGN or the sections change?); a findings report; the rig reports no network interfaces, so its PGNs go to 127.0.0.1 only and never reach a module on the LAN; CI only builds it (and runs its host-loop budget), `vehicle-tool-scenarios.yml` runs it nightly (its `README.md`)
+- `AgOpenWeb.FieldScenarios.Tests` - end-to-end field scenarios: the whole backend in-process, a careful and a careless operator on five real field shapes, a findings report; about 4 minutes, so CI only builds it and `field-scenarios.yml` runs it nightly (its `README.md`)
+- `AgOpenWeb.SteerWizardScenarios.Tests` - end-to-end steer wizard scenarios: the whole backend in-process, an emulated AiO steer module (firmware P controller on its 25 ms loop, WAS formula, locks, either motor wiring) and a moving tractor, a careful and a careless operator, a safety watch on the wheels at 50 Hz, a findings report; about 10 minutes, so CI only builds it and `steer-wizard-scenarios.yml` runs it nightly (its `README.md`)
+- `AgOpenWeb.MachineModuleScenarios.Tests` - an emulated Sprayer_ESP32 machine module on the real UDP: sections vs valves, settings reaching the module, restarts and outages (`machine-module-scenarios.yml`)
+- `AgOpenWeb.GpsNtripScenarios.Tests` - receivers, sentence families and an NTRIP caster on the loopback: corrections, network changes, dual heading (`gps-ntrip-scenarios.yml`; one scenario needs Linux's 127.0.0.2)
+- `AgOpenWeb.FieldJobScenarios.Tests` - whole jobs on real fields with AutoSteer, U-turns and auto sections, measuring where product really went on a 0.2 m grid (`FieldJobScenarioTests`, the careful and the careless operator); its `PathJobScenarioTests` do the same on curves, the boundary as a loop, a water pivot, contour and a recorded path; `RigJobScenarioTests` with the testers' rigs: an implement shifted to one side, a curve recorded by driving, a wide implement skipping rows, the snake order (skip worked passes, W1-W2); `TurnInterventionScenarioTests` with an operator who acts during a U-turn, and manual U-turns; `ImperialJobScenarioTests` the job typed in feet and inches through the real web client, headless Chromium. One engine (`JobRun`), so one nightly, `job-scenarios.yml`: the six side by side, then one combined report listing each finding once with every harness and job it was seen in (`Tools/combine-job-reports.py`). **Short runs:** `AGOPENWEB_SCENARIO_TURNS=N` stops each job at its (N+1)th U-turn, `AGOPENWEB_SCENARIO_MINUTES=N` after N simulated minutes, `AGOPENWEB_SCENARIO_FROM_PASS=K` starts on pass K (rework passes 28-32 of a finding: `FROM_PASS=28 TURNS=4`) (a job of a few passes in under a minute, not 5-80), with the whole-field checks skipped; `AGOPENWEB_SCENARIO_ONLY=J1,J8` picks jobs; the workflow's `only`, `turns`, `from_pass` and `minutes` inputs do the same on GitHub. Confirm a fix with a unit test first, then a short fix-vs-base run of the jobs it touches on the harness host, then merge: the nightly on develop is the full check the next morning (`FROM_PASS` works on AB lines and curves)
+- `AgOpenWeb.IsobusScenarios.Tests` - an emulated AOG-TaskController and its implements (`isobus-scenarios.yml`)
+- `AgOpenWeb.WebClientScenarios.Tests` - the real web client in headless Chromium (Playwright) on the screen target, a 10" tablet in landscape (1280×800 CSS px, the Panasonic FZ-G1; other screens are out of scope, `Docs/WEB_CLIENT.md`), a second tablet as observer, and the operator's screen going away while working (tab closed, Wi-Fi silent or cut, tablet asleep, Free Drive, a section on by hand), read at the module port; and the operator's flows done by taps and typing (tracks made every way but the water pivot, boundary and headland, tram lines, fields and jobs, the section bar, the U-turn and lateral buttons) with a careful and a careless operator (`web-client-scenarios.yml`)
+- `AgOpenWeb.UpdateScenarios.Tests` - settings, profiles, casters, fields and a job made on older releases (their Linux bundles, SHA-256 checked) then read back by this build, a rollback; on this build a restart, a power cut, damaged and leftover files, a moved data folder, a comma-decimal locale, AgOpenGPS fields and a whole AgOpenGPS 6.8.6 folder; about 15 minutes (`update-scenarios.yml`)
+- `AgOpenWeb.WorkingDayScenarios.Tests` - an eight-hour working day in one process (fields, refills, lunch, a tablet and a phone that drop, stall and reconnect, the next morning): memory baselines, heap census, cycle and tick times, the deadman with a second browser; about 45 minutes (`working-day-scenarios.yml`)
+- `AgOpenWeb.DumpReplayScenarios.Tests` - the bug report dumps attached to public issues, replayed on this build: the reporter's settings, field, job and track, their GPS log fed back through the pipeline and compared with what their build did, then a machine of their shape taken over with AutoSteer and U-turns; the bug report service's dumps only in a local run (`AGOPENWEB_REPLAY_PRIVATE=1`), never in CI (`dump-replay-scenarios.yml`)
+
+**Running the harnesses:** on the harness host, never on a development machine (`Tools/harness-runner`: a Docker image run on the `runner` context; `runner-compare.sh` runs a fix and its base side by side and lists the findings new, gone and in both, `Tools/compare-reports.py`). Every harness stops at the start when another process holds UDP 9999 or 8888 (`Tests/ScenarioShared/PortGuard.cs`, linked into each): an app left running shares the packets and the findings are noise. Before rerunning, read the saved report, pictures and traces; one confirming run per fix.
+
+CI also runs `Tools/i18n-extract.py --check` so `en.json` stays current, `Tools/license-headers.py --check` for the licence headers, and `Tools/i18n-limits.py --check` (job `translations-fit`, only when a change touches `wwwroot/`, the check, its baseline or the workflow; otherwise skipped, which counts as passed) so every translated label fits the English layout.
+
+**Hot-path budgets** (job `hot-path-budgets`, `Tests/AgOpenWeb.Services.Tests/Performance`): a 300 × 500 m field, with a headland and with only the outer boundary, is driven through the real GPS cycle and the 100 Hz control tick, and every cycle is held to a budget of `WorkCounters` (polygon edges, coverage lookups, offset points, bytes allocated). Counts don't depend on the machine, so CI can enforce them. A failure means new work runs every cycle: do it once and keep the result. `HotPathBudgetTests.Report` (explicit) prints the counts. Run locally: `dotnet test Tests/AgOpenWeb.Services.Tests/ -c Release --filter TestCategory=HotPath`. The same job holds the host loop and the 10 Hz broadcast to a budget with a field open (`HostLoopBudgetTests` in the Vehicle & Tool harness: the whole backend, 41 fields on the disk, a pass driven; the test runs each `MapBroadcaster.BroadcastOnceAsync` itself and the rig's dispatcher counts every host-loop item, files read included, #604/#169): `dotnet test Tests/AgOpenWeb.VehicleToolScenarios.Tests/ -c Release --filter TestCategory=HotPath`.
+
+## U-Turn System
+
+U-turns are planned by `YouTurnStateMachine` (automatic turns at the turn line, and manual
+turns from the on-screen buttons) with paths built by `YouTurnCreationService`:
+- **The turn line, not the headland**, as AgOpenGPS (`CYouTurn` uses only `turnLine`, `CTurn.BuildTurnLines`): the fence moved in by the U-turn distance from boundary. The automatic turn's trigger, zones and landing checks read it (`GpsPipelineService`: `turnLine`, the turn area of the out-of-bounds test too), with a headland or without, on or off. The headland is for the sections, the hydraulic lift and the drawing, and for the "Headland too narrow" warning (`TickContext.WorkHeadlandLine`). A pass inside the headland band turns like any other (#694: a boundary curve's outer passes).
+- Automatic: entry leg, arc, exit leg back to the next track; triggered when the tractor reaches the turn start, with an approach alarm 20 m out.
+- Rows wider than twice the turn radius (a wide spreader, skipped rows) get AgOpenGPS's wide turn (`CreateCurveWideTurn`): a quarter circle out of the pass, tangent to the turn line, the turn line itself, a quarter circle into the next pass, so the distance from the boundary holds on an angled headland (#544). The omega turn (one shape square to the track) is the fallback when it can't be built.
+- Manual: a Dubins path at the configured `UTurnRadius` from 4 m ahead of the tractor to the point abreast on the target pass (an omega when the radius exceeds half the pass offset), laid out along the track's local heading (the curve's heading at the nearest point); the path's first point is the tractor itself. Like AgOpenGPS `BuildManualYouTurn`.
+- The state machine's `StatusMessage` is not sent to the web client. What the operator must see is marked `YouTurnEffects.TellOperator` and shown as a toast (`GpsCycleResult.YouTurnNotice` → `ReportFailure`): a manual U-turn that was refused (every way out of `TriggerManual` but a started turn), and a turn that can't be made or was missed, once, with its sound (`SoundMissed`, `SoundCreationFailed`).
+- The turn hands back to line guidance with 4 m of arc remaining (`EarlyCompletionLookahead`).
+- While a turn is driven (`IsExecuting`) the pass shown is the one it lands on (`GpsPipelineService.TurnTargetPass`): the highlighted line, the tool's band, the guidelines and the pass label, as AgOpenGPS, which moves to the next pass when the turn starts (`CYouTurn.YouTurnTrigger`). The pass worked (`HowManyPathsAway`: the worked-pass mark, the snake order, a turn backed out of, #588) still moves on in `CompleteTurn`.
+- A turn that loops (the next pass closer than twice the radius) is moved in to stay inside the turn line, as AgOpenGPS; when the headland is narrower than the loop is deep it leaves its pass inside the headland line, still working, and the status says "Headland too narrow for this U-turn" with how far before the line (`TurnStartInsideHeadlandLine`).
+- The turn is built from the headland crossing **ahead** of the tractor (`FindTrackHeadlandIntersectionAhead`; one behind only past the last crossing). When no real turn fits, the simple fallback (a semicircle) is used only if every point of it stays in the field, outside obstacles a turn may not drive through (`LeavesField`, #698); otherwise no turn and the creation-failed sound, as AgOpenGPS (which has no fallback). A hard boundary refuses a turn that would start under or behind the tractor.
+- The next pass must have room at this end: at least 20 m of it inside the cultivated area back from the end ahead (`IsPathLandable` / `LandingLength`), not just any piece of it inside the field; otherwise "End of field reached - no room on the next pass at this end" (#712). Driving on across a headland gap to the next piece is not done (an enhancement).
+- Skip worked passes (the snake order): when the order's next pass has no room at this end, or its turn does not build, the turn goes onto the nearest pass still to do that has room, first on the side the order is going, then on the other side (one turn built per side; a pass at least the skip away before a nearer one; none further than twice the skip's step, else "End of field reached" and the operator decides), never against the side the operator picked with the U-turn arrow (`TurnOntoNearestOpenPass`; AgOpenGPS's `GetNextNotWorkedTrack` only steps outward on the turn's side past worked tracks, so the other side, passes nearer than the skip and the room and build checks are ours); the order is planned again from where it lands. An end where no turn was made is remembered (`_failedEnd`) and not tried again on every cycle until the pass, the direction of travel, the nudge, the order, the field or headland, the skip, the U-turn arrow or a turn setting changes. The order is also planned again when the headland line or the outer boundary changes (`SnakeFieldStamp`). In the headland the snake looks for its next turn only heading out of the field (no cultivated ground ahead on the pass): a turn that ends in the headland leaves the tractor facing the field on its new pass, which is not the end of that pass.
+- An open curve whose ends face each other (a boundary curve made the long way round, A and B with an opening between them): A and B are the line's ends, no run-on past them, and the opening is a virtual boundary (`CurveEndOpening`, a strip of twice the U-turn radius plus the distance from boundary past A and B): the U-turn turns there into the next pass as at the field's edge. A turn that would hand over past the end of the next pass's line (the inner passes, whose two ends meet in a V, with a skip) is not made (`TurnLanding.PastLineEnd`). Past an open curve's end with no turn to take over, AutoSteer goes off ("past end of curve", AgOpenGPS `CABCurve`) instead of steering back (#694).
+
+Key parameters:
+- `UTurnDistanceFromBoundary` - the turn line's distance in from the fence: the turn keeps the tractor inside it (not the implement, as AgOpenGPS)
+- `UTurnRadius` - the operator's turning radius (never filled in from the tractor)
+- `UTurnExtension` - the legs' length into and out of the arc
+- The headland's width plays no part in the turn: with a headland narrower than the turn is deep, the turn leaves its pass inside the headland line, still working ("Headland too narrow for this U-turn").
+
+## CI/CD
+
+GitHub Actions workflows, split by purpose:
+
+- **`build-and-release.yml`** ("CI") — on every push / PR to `main`: runs the test suite plus a
+  compile-check of each platform head (Desktop, Android, iOS). No packaging, no releases.
+- **`build-deploy-bundles.yml`** — the single packaging + release publisher. Runs the
+  `deploy/{linux,windows,macos}/package.sh` scripts + builds the signed Android APK on clean runners:
+  - on a **`v*` tag** (or manual dispatch with a tag) → publishes one complete Release, marked
+    prerelease so it never shows as "Latest" (the beta is the build users run), with every
+    artifact: Linux daemon (x64/arm64) + desktop launcher (x64/arm64) tarballs, Windows zip
+    (launcher + service installer), macOS `.dmg`, and the Android APK; its notes end with every
+    PR merged since the previous version tag (GitHub's generated notes, `.github/release.yml`);
+  - on a **daily schedule** → refreshes a rolling `beta` prerelease with the same artifacts, only
+    when `develop` has moved on since the beta was built (otherwise the run builds nothing);
+  - on a manual dispatch, by its `publish` input: `beta` (default) refreshes the rolling
+    beta from `develop` right away (title carries build time + commit); `release` publishes
+    the Release named by `release_tag`; `none` builds + uploads artifacts only (dry run).
+
+- **Scenario harnesses, nightly** — eleven workflows, each running its harness on `develop` (when it has a
+  commit from the last 25 hours) or by hand, keeping its findings report as an artifact and in the run's
+  summary; PR CI only builds them. GitHub's own schedule started them 5–8 hours late every day, so the bug
+  report Worker starts them (`Tools/bugreport-worker`, `NIGHTLY_CRON` 05:07 UTC, 23:07 US Central, `NIGHTLY_WORKFLOWS`
+  in its `wrangler.toml`: a change there needs `wrangler deploy`) as a `workflow_dispatch` with `nightly=true`, which keeps the 25-hour check;
+  side by side, each on its own runner: `field-scenarios.yml`, `steer-wizard-scenarios.yml` (also fails when its safety watch saw the
+  wheels move when they shouldn't), `vehicle-tool-scenarios.yml`, `machine-module-scenarios.yml`,
+  `gps-ntrip-scenarios.yml`, `job-scenarios.yml` (the five job harnesses, up to about 80 min, one combined report), `isobus-scenarios.yml`,
+  `web-client-scenarios.yml`, `update-scenarios.yml`, `working-day-scenarios.yml`, `dump-replay-scenarios.yml`.
+  The slow ones that rarely change (the Vehicle & Tool settings sweep, working day, update, dump replay) run only when a
+  commit of the last 25 hours touched what they cover, and every Sunday whatever changed (`.github/scripts/nightly-fresh.sh`,
+  the paths in each workflow; add a path there when a harness starts covering more). Each harness's `README.md` says what it covers.
+
+To cut a release (about weekly, so each one stays small): bump `sys/version.h` and the three heads' display versions, then push a tag — `git tag v26.7.x && git push origin v26.7.x`. A summary on top of the generated list goes in with `gh release edit`.
+
+## Legacy Code
+
+- `ABLine.cs` - Marked `[Obsolete]`, retained only for AgOpenGPS file I/O compatibility
+- Use `Track` model for all new guidance code
+- `TestRunner/` - Legacy console test harness, superseded by NUnit test projects in `Tests/`
+- `Simulators/AgOpenWeb.VehicleSimulator` - Avalonia desktop dev tool, kept as is

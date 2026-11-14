@@ -1,7 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2026 AgOpenWeb Contributors
-//
-// Licensed under GNU GPL v3. See LICENSE.md.
+// SPDX-License-Identifier: Apache-2.0
 
 using System.Threading.Tasks;
 using AgOpenWeb.Models;
@@ -104,16 +103,17 @@ public class MaxSteeringAngleStepTests
         var step = new MaxSteeringAngleStepViewModel(_configService, new AgOpenWeb.Services.Threading.InlineUiDispatcher(), _autoSteer);
         step.DelayFunc = (_, _) => Task.CompletedTask;
 
-        double angle = 0;
-        bool right = true;
+        // Drifts the way it is commanded and never plateaus (a wheel drifting the
+        // other way stops the test: the motor direction is wrong).
+        double angle = 0, commanded = 0;
+        _autoSteer.When(a => a.SetFreeDriveAngle(Arg.Any<double>())).Do(c =>
+        {
+            if (System.Math.Sign(c.Arg<double>()) != System.Math.Sign(commanded)) angle = 0;
+            commanded = c.Arg<double>();
+        });
         step.ReadWasAngle = () =>
         {
-            angle += right ? 0.5 : -0.5;  // never plateaus, just drifts
-            if (System.Math.Abs(angle) > 50)
-            {
-                right = !right;
-                angle = right ? 0 : 0;
-            }
+            angle += 0.5 * System.Math.Sign(commanded);
             return angle;
         };
 
@@ -126,4 +126,56 @@ public class MaxSteeringAngleStepTests
         Assert.That(step.Phase, Is.EqualTo(MaxSteeringAnglePhase.Complete));
         Assert.That(step.CalibrationCompleted, Is.True);
     }
+
+    // ── #170: the wheels must actually move ───────────────────────────────
+
+    [Test]
+    public async Task Wheels_that_do_not_move_fail_and_nothing_is_saved()
+    {
+        // Reporter's case: free drive didn't move the wheels (module not steering), the WAS
+        // sat at 7.2° and the old code saved it as both the right and left lock.
+        _store.Vehicle.MaxSteerAngle = 34;
+        var step = new MaxSteeringAngleStepViewModel(_configService, new AgOpenWeb.Services.Threading.InlineUiDispatcher(), _autoSteer);
+        step.DelayFunc = (_, _) => Task.CompletedTask;
+        step.ReadWasAngle = () => 7.2;
+        SetActive(step, true);
+
+        await step.RunMaxAngleMeasurementAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(step.CalibrationCompleted, Is.False);
+            Assert.That(step.Phase, Is.EqualTo(MaxSteeringAnglePhase.WaitingToStart));
+            Assert.That(step.PhaseResult, Does.Contain("didn't move").And.Contain("not changed"));
+        });
+        SetActive(step, false);
+        Assert.That(_store.Vehicle.MaxSteerAngle, Is.EqualTo(34), "a failed test must not overwrite the max steer angle");
+    }
+
+    [TestCase(0, 35, -30, null)]
+    [TestCase(7.2, 7.2, 7.2, "didn't move")]
+    [TestCase(0, 3, -3, "didn't move")]
+    [TestCase(0, -30, 30, "opposite way")]
+    public void LockMovementError_cases(double start, double right, double left, string? expected)
+    {
+        var err = MaxSteeringAngleStepViewModel.LockMovementError(start, right, left);
+        if (expected == null) Assert.That(err, Is.Null);
+        else Assert.That(err, Does.Contain(expected));
+    }
+
+    [Test]
+    public void Hint_is_quiet_before_Start_even_though_the_module_reports_not_steering()
+    {
+        // AIO v4 reports "not steering" whenever the app sends status 0, so before Free Drive
+        // the bit says nothing about the steer switch (#154).
+        _autoSteer.LastSteerData.Returns(SteerModuleData.Empty with { SteerSwitchActive = true });
+        var step = new MaxSteeringAngleStepViewModel(_configService, new AgOpenWeb.Services.Threading.InlineUiDispatcher(), _autoSteer);
+        SetActive(step, true);
+        Assert.That(step.RecordHint, Is.Empty);
+        Assert.That(step.CanStartTest, Is.True);
+    }
+
+    private static void SetActive(AgOpenWeb.ViewModels.Wizards.WizardStepViewModel step, bool active) =>
+        typeof(AgOpenWeb.ViewModels.Wizards.WizardStepViewModel)
+            .GetProperty(nameof(AgOpenWeb.ViewModels.Wizards.WizardStepViewModel.IsActive))!.SetValue(step, active);
 }

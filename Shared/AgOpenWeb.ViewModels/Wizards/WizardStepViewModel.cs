@@ -1,19 +1,10 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -97,11 +88,56 @@ public abstract class WizardStepViewModel : ObservableObject
             if (oldValue != value)
             {
                 if (value)
-                    OnEntering();
+                {
+                    // Values loaded from the store on entry aren't the step's own changes.
+                    _touched.Clear();
+                    _loading = true;
+                    try { OnEntering(); }
+                    finally { _loading = false; }
+                }
                 else
                     OnLeaving();
             }
         }
+    }
+
+    // Properties the step itself changed while active — a calibration action's result
+    // (Zero WAS, CPD / Ackermann / motor tests), a native binding, or remote wizard.set.
+    // OnLeaving writes back ONLY these: the web edits wizard fields straight into the
+    // ConfigurationStore (config.set), so writing the whole entry-time copy back reverted
+    // every web edit on Next/Back (#108).
+    private readonly HashSet<string> _touched = new();
+    // The same, for the whole wizard: not cleared when the step is entered again, so a zero
+    // done on an earlier visit still counts as done (the Finish page's tests not run).
+    private readonly HashSet<string> _touchedInWizard = new();
+    private bool _loading;
+
+    protected override void OnPropertyChanged(PropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+        if (!_loading && e.PropertyName != null)
+        {
+            _touched.Add(e.PropertyName);
+            _touchedInWizard.Add(e.PropertyName);
+        }
+    }
+
+    /// <summary>Whether this step changed <paramref name="propertyName"/> since it was entered.</summary>
+    protected bool Touched(string propertyName) => _touched.Contains(propertyName);
+
+    /// <summary>Whether this step changed <paramref name="propertyName"/> on any visit in this wizard.</summary>
+    protected bool TouchedInWizard(string propertyName) => _touchedInWizard.Contains(propertyName);
+
+    /// <summary>
+    /// Set properties that mirror a value the step already wrote to the store, without
+    /// marking them touched — so OnLeaving won't write the mirror back over a later edit.
+    /// </summary>
+    protected void SetUntouched(Action set)
+    {
+        bool was = _loading;
+        _loading = true;
+        try { set(); }
+        finally { _loading = was; }
     }
 
     /// <summary>
@@ -115,6 +151,25 @@ public abstract class WizardStepViewModel : ObservableObject
     /// Override to save intermediate state.
     /// </summary>
     protected virtual void OnLeaving() { }
+
+    /// <summary>
+    /// Copy what the step shows from the live settings again, just before it is checked. The
+    /// web wizard types into the live settings (config.set), not into the step, so the copies
+    /// taken when the step opened go stale: a wheelbase of 0 typed in passed the check, and
+    /// the right value typed after it was refused with the old one's message. Overrides
+    /// refresh only what the step itself didn't change (<see cref="Touched"/>).
+    /// </summary>
+    protected virtual void ReloadFromStore() { }
+
+    /// <summary>Reload the step from the live settings (<see cref="ReloadFromStore"/>), then check it.</summary>
+    public Task<bool> ValidateLiveAsync()
+    {
+        bool was = _loading;
+        _loading = true;
+        try { ReloadFromStore(); }
+        finally { _loading = was; }
+        return ValidateAsync();
+    }
 
     /// <summary>
     /// Validates the current step before allowing navigation to next.

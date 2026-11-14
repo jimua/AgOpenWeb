@@ -1,3 +1,7 @@
+// AgOpenWeb
+// Copyright (C) 2024-2026 AgOpenWeb Contributors
+// SPDX-License-Identifier: Apache-2.0
+
 // Helpers for RemoteServerWiring.Wire — moved verbatim from the Desktop App class so
 // every host (Desktop/headless/iOS/Android) shares one web-command→VM/service mapping.
 using System;
@@ -10,25 +14,55 @@ namespace AgOpenWeb.RemoteWiring;
 
 public static partial class RemoteServerWiring
 {
-    private static readonly System.Collections.Generic.HashSet<string> UngatedTrackIds = new()
+    // A browser without control is an observer: it sees everything and changes nothing
+    // (#397). Only these ids run for it; the hub handles control.*, diag.ping and diag.client itself.
+    // Fail-closed: a new id needs control unless it is added here, and only a request
+    // that changes no setting, data or machine state belongs here.
+    internal static readonly System.Collections.Generic.HashSet<string> ObserverIds = new()
     {
-        "track.drawStraight", "track.drawCurve", "track.drawPoint", "track.drawFinish",
-        "track.drawUndo", "track.drawCancel", "track.aPlus", "track.driveAB",
-        "track.recordCurve", "track.finishCurve", "track.setABGps",
-        "track.createFromBoundary", "track.boundaryCurve", "track.boundaryCurveSeg", "track.allEdges",
-        "track.setVisible", "track.toggleRecPaths", "track.editSave",
+        "boundary.refresh", // rebuilds the boundary menu list from the open field
+        "lists.refresh",    // a panel showing fields, jobs or profiles opened: read them again (#604)
+        "import.scan",      // lists the Import folder for a picker that opened
     };
 
-    // Field Builder headland *building* is field-data editing (done while reviewing the
-    // field, not live actuation), so it stays ungated like track creation. The live
-    // headland on/off + section-in-headland toggles (headland.toggle / .sectionToggle)
-    // DO change what the machine does, so they remain gated. Fail-closed: a new
-    // headland.* id defaults to gated until added here.
-    private static readonly System.Collections.Generic.HashSet<string> UngatedHeadlandIds = new()
+    /// <summary>Parse a whole-number setting, rounding a decimal ("12.5" → 13) rather than
+    /// rejecting it (#112).</summary>
+    internal static bool TryParseRoundedInt(string val, out int i)
     {
-        "headland.fromMapPoints", "headland.wholeBoundary", "headland.setOffset",
-        "headland.delete", "headland.deleteAll", "headland.rename", "headland.editSave",
-    };
+        i = 0;
+        if (!double.TryParse(val, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var d)
+            || double.IsNaN(d) || d > int.MaxValue || d < int.MinValue)
+            return false;
+        i = (int)Math.Round(d, MidpointRounding.AwayFromZero);
+        return true;
+    }
+
+    // config.set as the web client sends it, with the Vehicle & Tool values no machine has
+    // refused (VehicleToolLimits: a negative wheelbase steers away from the line, an overlap as
+    // wide as the implement puts every pass on one line). Returns why a value was refused, or
+    // what the app changed on its own, for the operator; null when it was simply applied.
+    private static string? ApplyCheckedConfigSet(AgOpenWeb.Models.Configuration.ConfigurationStore store,
+        AgOpenWeb.Services.Interfaces.IConfigurationService cfg, string key, string val)
+    {
+        if (AgOpenWeb.Models.Configuration.VehicleToolLimits.Check(key, val, store) is { } refused)
+            return refused;
+
+        var tool = store.Tool;
+        bool harvester = store.Vehicle.Type == AgOpenWeb.Models.VehicleType.Harvester;
+        bool wasFront = tool.IsToolFrontFixed;
+
+        ApplyConfigSet(store, cfg, key, val);
+
+        if (AgOpenWeb.Models.Configuration.VehicleToolLimits.ApplySectionTiming(key, store) is { } timing)
+            return timing;
+        // A harvester's header is front-mounted (#111): say so rather than ignore the choice.
+        if (key == "tool.type" && harvester && !string.Equals(val, "front", System.StringComparison.OrdinalIgnoreCase))
+            return "A combine takes only a front implement (its header)";
+        if (key == "vehicle.type" && !harvester && store.Vehicle.Type == AgOpenWeb.Models.VehicleType.Harvester && !wasFront)
+            return "Implement set to front: a combine takes only a front implement";
+        return null;
+    }
 
     // Config bridge (Phase 9a+): apply one "key:value" config write from the web client.
     // Device settings (e.g. units) persist immediately via SaveAppSettings; profile
@@ -40,7 +74,9 @@ public static partial class RemoteServerWiring
     {
         var inv = System.Globalization.CultureInfo.InvariantCulture;
         bool D(out double d) => double.TryParse(val, System.Globalization.NumberStyles.Float, inv, out d);
-        bool I(out int i) => int.TryParse(val, System.Globalization.NumberStyles.Integer, inv, out i);
+        // Whole-number settings accept a decimal and round it: metric input like "12.5" was
+        // silently dropped by a strict int parse (imperial input was already rounded, #112).
+        bool I(out int i) => TryParseRoundedInt(val, out i);
         bool B() => val == "1";
         bool IDX(out int i, out string rest) // "i,rest" — indexed array writes
         {
@@ -62,10 +98,24 @@ public static partial class RemoteServerWiring
             case "conn.machineConfigured": con.IsMachineConfigured = B(); cfg.SaveAppSettings(); return;
             // --- AgShare cloud settings (ConfigStore.Connections). Persist on change. ---
             case "conn.agShareServer": con.AgShareServer = val; cfg.SaveAppSettings(); return;
-            case "conn.agShareApiKey": con.AgShareApiKey = val; cfg.SaveAppSettings(); return;
+            case "conn.agShareApiKey": // the mask = unchanged (the client never has the key)
+                if (val == AgOpenWeb.RemoteServer.Secrets.Mask) return;
+                con.AgShareApiKey = val; cfg.SaveAppSettings(); return;
             case "conn.agShareEnabled": con.AgShareEnabled = B(); cfg.SaveAppSettings(); return;
+            case "conn.rtcmBroadcast": con.RtcmBroadcast = B(); cfg.SaveAppSettings(); return;
+            case "conn.sendCorrectedPosition": con.SendCorrectedPosition = B(); cfg.SaveAppSettings(); return;
+            case "conn.ntripEnabled": con.NtripEnabled = B(); cfg.SaveAppSettings(); return; // the VM connects / disconnects
+            case "conn.ntripProfilePerField": con.NtripProfilePerField = B(); cfg.SaveAppSettings(); return; // the VM applies the mode
             // --- Vehicle config (Phase 9b). Live effect; persisted by a profile.save. ---
-            case "vehicle.type": if (I(out var ty)) veh.Type = (AgOpenWeb.Models.VehicleType)ty; return;
+            case "vehicle.type":
+                if (I(out var ty))
+                {
+                    veh.Type = (AgOpenWeb.Models.VehicleType)ty;
+                    // A harvester's header is front-mounted: AgOpenGPS ConfigTool forces
+                    // the tool to Front Fixed and hides the other types (#111).
+                    if (veh.Type == AgOpenWeb.Models.VehicleType.Harvester) tool.SetToolType("front");
+                }
+                return;
             case "vehicle.hitchType": if (I(out var ht)) veh.HitchType = ht; return;
             case "vehicle.hitchLength": if (D(out var d1)) veh.HitchLength = d1; return;
             case "vehicle.wheelbase": if (D(out var d2)) veh.Wheelbase = d2; return;
@@ -73,6 +123,9 @@ public static partial class RemoteServerWiring
             case "vehicle.antennaPivot": if (D(out var d4)) veh.AntennaPivot = d4; return;
             case "vehicle.antennaHeight": if (D(out var d5)) veh.AntennaHeight = d5; return;
             case "vehicle.antennaOffset": if (D(out var d6)) veh.AntennaOffset = d6; return;
+            case "vehicle.imuPivot": if (D(out var di1)) veh.ImuPivot = di1; return;
+            case "vehicle.imuHeight": if (D(out var di2)) veh.ImuHeight = di2; return;
+            case "vehicle.imuOffset": if (D(out var di3)) veh.ImuOffset = di3; return;
             case "vehicle.antennaSide": // L/C/R presets (mirror ConfigurationViewModel)
                 if (val == "center") veh.AntennaOffset = 0;
                 else if (val == "left") veh.AntennaOffset = System.Math.Abs(veh.AntennaOffset) < 0.01 ? -0.5 : -System.Math.Abs(veh.AntennaOffset);
@@ -96,7 +149,8 @@ public static partial class RemoteServerWiring
             case "roll.isRollInvert": ahrs.IsRollInvert = B(); return;
             case "roll.setZero": ahrs.RollZero = 0; return; // mirror SetRollZeroCommand
             // --- Tool / Implement (ConfigStore.Tool + NumSections) ---
-            case "tool.type": tool.SetToolType(val); return; // front/rear/tbt/trailing
+            case "tool.type": // front/rear/tbt/trailing; a harvester only takes front (#111)
+                tool.SetToolType(veh.Type == AgOpenWeb.Models.VehicleType.Harvester ? "front" : val); return;
             case "tool.hitchType": if (I(out var th)) tool.HitchType = th; return;
             case "tool.hitchLength": if (D(out var t1)) tool.HitchLength = t1; return;
             case "tool.trailingHitchLength": if (D(out var t2)) tool.TrailingHitchLength = t2; return;
@@ -110,9 +164,10 @@ public static partial class RemoteServerWiring
             case "tool.trailingToolToPivotLength": if (D(out var t10)) tool.TrailingToolToPivotLength = t10; return;
             case "tool.slowSpeedCutoff": if (D(out var t11)) tool.SlowSpeedCutoff = t11; return;
             case "tool.coverageMargin": if (D(out var t12)) tool.CoverageMargin = t12; return;
-            case "tool.defaultSectionWidth": if (D(out var t13)) tool.DefaultSectionWidth = t13; return;
+            // The operator's section count and default width set every section (#676).
+            case "tool.defaultSectionWidth": if (D(out var t13)) store.ApplyDefaultSectionWidth(t13); return;
             case "tool.minCoverage": if (I(out var t14)) tool.MinCoverage = t14; return;
-            case "tool.numSections": if (I(out var t15)) store.NumSections = t15; return;
+            case "tool.numSections": if (I(out var t15)) store.ApplySectionCount(t15); return;
             case "tool.zones": if (I(out var t16)) tool.Zones = t16; return;
             case "tool.isSectionsNotZones": tool.IsSectionsNotZones = B(); return;
             case "tool.isMultiColoredSections": tool.IsMultiColoredSections = B(); return;
@@ -136,16 +191,18 @@ public static partial class RemoteServerWiring
             case "tool.zoneEnd": if (IDX(out var zei, out var zev) && int.TryParse(zev, out var zen)) tool.SetZoneEndSection(zei, zen); return;
             case "tool.sectionColor": if (IDX(out var sci, out var sch) && uint.TryParse(sch, System.Globalization.NumberStyles.HexNumber, inv, out var scc)) tool.SetSectionColor(sci, scc); return;
             case "tool.singleCoverageColor": if (uint.TryParse(val, System.Globalization.NumberStyles.HexNumber, inv, out var scov)) tool.SingleCoverageColor = scov; return;
-            // --- U-Turn (ConfigStore.Guidance) ---
+            // --- U-Turn (ConfigStore.Guidance; saved with the tool profile, #330) ---
             case "uturn.style": if (I(out var u1)) gd.UTurnStyle = u1; return;
             case "uturn.extension": if (D(out var u2)) gd.UTurnExtension = u2; return;
             case "uturn.smoothing": if (I(out var u3)) gd.UTurnSmoothing = u3; return;
             case "uturn.radius": if (D(out var u4)) gd.UTurnRadius = u4; return;
             case "uturn.distanceFromBoundary": if (D(out var u5)) gd.UTurnDistanceFromBoundary = u5; return;
-            // --- Tram (ConfigStore.Guidance) ---
+            // --- Tram (ConfigStore.Guidance + Tram.TramWidth; saved with the tool profile, #330) ---
             case "tram.passes": if (I(out var tp)) gd.TramPasses = tp; return;
             case "tram.display": gd.TramDisplay = B(); return;
             case "tram.line": if (I(out var tl)) gd.TramLine = tl; return;
+            case "tram.width": if (D(out var tw) && tw > 0) store.Tram.TramWidth = tw; return; // m (#110)
+            case "tram.outerInverted": store.Tram.IsOuterInverted = B(); return; // AgOpenGPS "Override" (#451)
             // --- Machine Control (ConfigStore.Machine) ---
             case "machine.hydraulicLiftEnabled": mch.HydraulicLiftEnabled = B(); return;
             case "machine.raiseTime": if (I(out var m1)) mch.RaiseTime = m1; return;
@@ -169,6 +226,7 @@ public static partial class RemoteServerWiring
             case "display.hardwareMessagesEnabled": disp.HardwareMessagesEnabled = B(); cfg.SaveAppSettings(); return;
             case "display.extraGuidelines": disp.ExtraGuidelines = B(); cfg.SaveAppSettings(); return;
             case "display.extraGuidelinesCount": if (I(out var dg)) { disp.ExtraGuidelinesCount = dg; cfg.SaveAppSettings(); } return;
+            case "display.uiScale": if (I(out var us)) { disp.UiScale = us; cfg.SaveAppSettings(); } return;
             case "display.uTurnButtonVisible": disp.UTurnButtonVisible = B(); cfg.SaveAppSettings(); return;
             case "display.lateralButtonVisible": disp.LateralButtonVisible = B(); cfg.SaveAppSettings(); return;
             case "display.autoSteerSound": disp.AutoSteerSound = B(); cfg.SaveAppSettings(); return;
@@ -177,27 +235,32 @@ public static partial class RemoteServerWiring
             case "display.sectionsSound": disp.SectionsSound = B(); cfg.SaveAppSettings(); return;
             case "display.keyboardEnabled": disp.KeyboardEnabled = B(); cfg.SaveAppSettings(); return;
             case "display.startFullscreen": disp.StartFullscreen = B(); cfg.SaveAppSettings(); return;
+            case "display.imageryVisible": disp.ImageryVisible = B(); cfg.SaveAppSettings(); return;
             case "display.elevationLogEnabled": disp.ElevationLogEnabled = B(); cfg.SaveAppSettings(); return;
             // --- AutoSteer config (Phase 9). Live effect on ConfigStore.AutoSteer (the
             // SoT the VM binds to); MarkChanged re-fingerprints so the Config frame
             // re-sends and the value persists on a profile.save / Send&Save. Hardware
             // push is the separate (gated) autosteer.* actions, not these edits. ---
-            // Tab 1 — Pure Pursuit / Stanley
-            case "autosteer.steerResponseHold": if (D(out var a1)) { ast.SteerResponseHold = a1; store.MarkChanged(); } return;
-            case "autosteer.integralGain": if (D(out var a2)) { ast.IntegralGain = a2; store.MarkChanged(); } return;
-            case "autosteer.isStanleyMode": ast.IsStanleyMode = B(); store.MarkChanged(); return;
-            case "autosteer.stanleyAggressiveness": if (D(out var a3)) { ast.StanleyAggressiveness = a3; store.MarkChanged(); } return;
-            case "autosteer.stanleyOvershootReduction": if (D(out var a4)) { ast.StanleyOvershootReduction = a4; store.MarkChanged(); } return;
+            // Tab 1 — Pure Pursuit / Stanley. These (and speedFactor / uTurnCompensation
+            // below) write GuidanceConfig — what the pipeline steers with (#99). They keep
+            // their autosteer.* ids because they sit on the AutoSteer panel.
+            case "autosteer.steerResponseHold": if (D(out var a1)) { gd.GoalPointLookAheadHold = a1; store.MarkChanged(); } return;
+            case "autosteer.integralGain": if (D(out var a2)) { gd.PurePursuitIntegralGain = a2; store.MarkChanged(); } return;
+            case "autosteer.isStanleyMode": gd.IsPurePursuit = !B(); store.MarkChanged(); return;
+            case "autosteer.stanleyAggressiveness": if (D(out var a3)) { gd.StanleyDistanceErrorGain = a3; store.MarkChanged(); } return;
+            case "autosteer.stanleyOvershootReduction": if (D(out var a4)) { gd.StanleyHeadingErrorGain = a4; store.MarkChanged(); } return;
             // Tab 2 — Steering Sensor
             case "autosteer.wasOffset": if (I(out var a5)) { ast.WasOffset = a5; store.MarkChanged(); } return;
             case "autosteer.countsPerDegree": if (D(out var a6)) { ast.CountsPerDegree = a6; store.MarkChanged(); } return;
             case "autosteer.ackermann": if (I(out var a7)) { ast.Ackermann = a7; store.MarkChanged(); } return;
-            case "autosteer.maxSteerAngle": if (I(out var a8)) { ast.MaxSteerAngle = a8; store.MarkChanged(); } return;
+            // Max steer angle: the vehicle's, which guidance / U-turn / free drive clamp with (#106).
+            case "autosteer.maxSteerAngle": if (D(out var a8)) { veh.MaxSteerAngle = a8; store.MarkChanged(); } return;
             // Tab 3 — Deadzone / Timing
             case "autosteer.deadzoneHeading": if (D(out var a9)) { ast.DeadzoneHeading = a9; store.MarkChanged(); } return;
             case "autosteer.deadzoneDelay": if (I(out var a10)) { ast.DeadzoneDelay = a10; store.MarkChanged(); } return;
-            case "autosteer.speedFactor": if (D(out var a11)) { ast.SpeedFactor = a11; store.MarkChanged(); } return;
-            case "autosteer.acquireFactor": if (D(out var a12)) { ast.AcquireFactor = a12; store.MarkChanged(); } return;
+            case "autosteer.speedFactor": if (D(out var a11)) { gd.GoalPointLookAheadMult = a11; store.MarkChanged(); } return;
+            // Acquire factor lives with the other Pure Pursuit tuning (#99, #110).
+            case "autosteer.acquireFactor": if (D(out var a12)) { gd.GoalPointAcquireFactor = Math.Clamp(a12, 0.2, 3.0); store.MarkChanged(); } return;
             // Tab 4 — Gain / PWM
             case "autosteer.proportionalGain": if (I(out var a13)) { ast.ProportionalGain = a13; store.MarkChanged(); } return;
             case "autosteer.maxPwm": if (I(out var a14)) { ast.MaxPwm = a14; store.MarkChanged(); } return;
@@ -211,7 +274,7 @@ public static partial class RemoteServerWiring
             case "autosteer.currentTripPoint": if (I(out var a18)) { ast.CurrentTripPoint = a18; store.MarkChanged(); } return;
             // Tab 6 — Hardware Config
             case "autosteer.danfossEnabled": ast.DanfossEnabled = B(); store.MarkChanged(); return;
-            case "autosteer.invertWas": ast.InvertWas = B(); store.MarkChanged(); return;
+            case "autosteer.invertWas": ast.SetInvertWasKeepingCentre(B()); store.MarkChanged(); return; // the offset flips with it
             case "autosteer.invertMotor": ast.InvertMotor = B(); store.MarkChanged(); return;
             case "autosteer.invertRelays": ast.InvertRelays = B(); store.MarkChanged(); return;
             case "autosteer.motorDriver": if (I(out var a19)) { ast.MotorDriver = a19; store.MarkChanged(); } return;
@@ -219,24 +282,27 @@ public static partial class RemoteServerWiring
             case "autosteer.imuAxisSwap": if (I(out var a21)) { ast.ImuAxisSwap = a21; store.MarkChanged(); } return;
             case "autosteer.externalEnable": if (I(out var a22)) { ast.ExternalEnable = a22; store.MarkChanged(); } return;
             // Tab 7 — Algorithm
-            case "autosteer.uTurnCompensation": if (D(out var a23)) { ast.UTurnCompensation = a23; store.MarkChanged(); } return;
+            case "autosteer.uTurnCompensation": // panel shows % change from the 1.0 multiplier
+                if (D(out var a23)) { gd.UTurnCompensation = AgOpenWeb.Models.Configuration.GuidanceConfig.UTurnCompensationFromPercent(a23); store.MarkChanged(); } return;
             case "autosteer.sideHillCompensation": if (D(out var a24)) { ast.SideHillCompensation = a24; store.MarkChanged(); } return;
             case "autosteer.steerInReverse": ast.SteerInReverse = B(); store.MarkChanged(); return;
             // Tab 8 — Speed Limits
             case "autosteer.manualTurnsEnabled": ast.ManualTurnsEnabled = B(); store.MarkChanged(); return;
-            case "autosteer.manualTurnsSpeed": if (D(out var a25)) { ast.ManualTurnsSpeed = a25; store.MarkChanged(); } return;
-            case "autosteer.minSteerSpeed": if (D(out var a26)) { ast.MinSteerSpeed = a26; store.MarkChanged(); } return;
-            case "autosteer.maxSteerSpeed": if (D(out var a27)) { ast.MaxSteerSpeed = a27; store.MarkChanged(); } return;
-            // Tab 9 — Display
-            case "autosteer.lineWidth": if (I(out var a28)) { ast.LineWidth = a28; store.MarkChanged(); } return;
-            case "autosteer.nudgeDistance": if (I(out var a29)) { ast.NudgeDistance = a29; store.MarkChanged(); } return;
-            case "autosteer.nextGuidanceTime": if (D(out var a30)) { ast.NextGuidanceTime = a30; store.MarkChanged(); } return;
-            case "autosteer.cmPerPixel": if (I(out var a31)) { ast.CmPerPixel = a31; store.MarkChanged(); } return;
-            // Light/Steer are a radio MODE pair (mutually exclusive); GuidanceBarOn is
-            // the master. Selecting one mode deselects the other (AgOpen parity).
-            case "autosteer.lightbarEnabled": ast.LightbarEnabled = B(); if (ast.LightbarEnabled) ast.SteerBarEnabled = false; store.MarkChanged(); return;
-            case "autosteer.steerBarEnabled": ast.SteerBarEnabled = B(); if (ast.SteerBarEnabled) ast.LightbarEnabled = false; store.MarkChanged(); return;
-            case "autosteer.guidanceBarOn": ast.GuidanceBarOn = B(); store.MarkChanged(); return;
+            case "autosteer.manualTurnsSpeed": if (D(out var a25)) { ast.ManualTurnsSpeed = Math.Clamp(a25, 0, 20); store.MarkChanged(); } return; // km/h, AgOpenGPS range (#112)
+            case "autosteer.minSteerSpeed": if (D(out var a26)) { ast.MinSteerSpeed = Math.Clamp(a26, 0, 10); store.MarkChanged(); } return; // km/h, AgOpenGPS range (#112)
+            case "autosteer.maxSteerSpeed": if (D(out var a27)) { ast.MaxSteerSpeed = Math.Clamp(a27, 0, 50); store.MarkChanged(); } return; // km/h, AgOpenGPS range (#112)
+            // Tab 9 — Display. Nothing here goes to the steer module, so each is saved at once,
+            // as AgOpenGPS does; Send+Save is for the steering settings (#479).
+            case "autosteer.lineWidth": if (I(out var a28)) { ast.LineWidth = a28; cfg.SaveAutoSteerDisplaySettings(); } return;
+            case "autosteer.nudgeDistance": if (I(out var a29)) { ast.NudgeDistance = a29; cfg.SaveAutoSteerDisplaySettings(); } return;
+            case "autosteer.refNudgeDistance": if (I(out var a29r)) { ast.RefNudgeDistance = a29r; cfg.SaveAutoSteerDisplaySettings(); } return;
+            case "autosteer.nextGuidanceTime": if (D(out var a30)) { ast.NextGuidanceTime = a30; cfg.SaveAutoSteerDisplaySettings(); } return;
+            case "autosteer.cmPerPixel": if (I(out var a31)) { ast.CmPerPixel = a31; cfg.SaveAutoSteerDisplaySettings(); } return;
+            // AgOpenGPS: the guidance bar's On/Off (isLightbarOn) and its style, light bar or
+            // steer bar (isLightBarNotSteerBar), are separate settings (#479).
+            case "autosteer.lightbarEnabled": ast.LightbarEnabled = B(); cfg.SaveAutoSteerDisplaySettings(); return;
+            case "autosteer.steerBarEnabled": ast.SteerBarEnabled = B(); cfg.SaveAutoSteerDisplaySettings(); return;
+            case "autosteer.guidanceBarOn": ast.GuidanceBarOn = B(); cfg.SaveAutoSteerDisplaySettings(); return;
             // unknown key → ignored
         }
     }
@@ -262,7 +328,7 @@ public static partial class RemoteServerWiring
         try
         {
             if (t == typeof(double)) { if (double.TryParse(val, System.Globalization.NumberStyles.Float, inv, out var d)) conv = d; }
-            else if (t == typeof(int)) { if (int.TryParse(val, System.Globalization.NumberStyles.Integer, inv, out var i)) conv = i; }
+            else if (t == typeof(int)) { if (TryParseRoundedInt(val, out var i)) conv = i; } // e.g. Ackermann, Kp (#112)
             else if (t == typeof(bool)) conv = val == "1" || val == "true";
             else if (t.IsEnum) { if (int.TryParse(val, out var e)) conv = System.Enum.ToObject(t, e); }
             else if (t == typeof(string)) conv = val;
@@ -307,13 +373,13 @@ public static partial class RemoteServerWiring
             "FinishStepViewModel" => "finish",
             _ => "unknown",
         };
-        double GP(string n) { var p = s?.GetType().GetProperty(n); return p?.GetValue(s) is { } v ? System.Convert.ToDouble(v) : 0; }
+        double GP(string n) { var p = s?.GetType().GetProperty(n); return p?.GetValue(s) is { } v ? System.Convert.ToDouble(v, System.Globalization.CultureInfo.InvariantCulture) : 0; }
         bool GPb(string n) { var p = s?.GetType().GetProperty(n); return p?.GetValue(s) is bool b && b; }
         string GPs(string n) { var p = s?.GetType().GetProperty(n); return p?.GetValue(s)?.ToString() ?? ""; }
-        int GPi(string n) { var p = s?.GetType().GetProperty(n); return p?.GetValue(s) is { } v ? System.Convert.ToInt32(v) : 0; }
+        int GPi(string n) { var p = s?.GetType().GetProperty(n); return p?.GetValue(s) is { } v ? System.Convert.ToInt32(v, System.Globalization.CultureInfo.InvariantCulture) : 0; }
         var sb = w.StatusBar;
         string phaseResult = GPs("PhaseResult");
-        bool testActive = GPb("IsRecording") || GPb("IsMeasuring") || GPb("IsPhaseA1") || GPb("IsPhaseB1");
+        bool testActive = GPb("IsRecording") || GPb("IsMeasuring") || GPb("IsPhaseA1");
         return new AgOpenWeb.RemoteServer.WizardDto(
             w.CurrentStepIndex, w.TotalSteps, kind, step?.Title ?? "", step?.Description ?? "",
             w.CanGoBack, w.CanGoNext, w.CanSkip, w.IsOnLastStep, step?.ValidationMessage ?? "",
@@ -322,58 +388,14 @@ public static partial class RemoteServerWiring
             GP("LiveSteerAngle"), GP("LiveRoll"), GP("LiveSteerError"),
             GPs("PhaseDescription"), phaseResult.Length > 0 ? phaseResult : GPs("TestResult"),
             GP("Progress"), testActive,
-            GPb("IsRtkFixed"), GPs("FixQualityLabel"), GP("Diameter"));
+            GPb("IsRtkFixed"), GPs("FixQualityLabel"), GP("Diameter"),
+            GPs("RecordHint"), GPb("CanRecord"));
     }
 
     // Vehicle & Tool picker hub (Phase 9). Mirrors LoadVehicleToolDialogViewModel's
     // orchestration against IConfigurationService (the VM is dialog-scoped + Avalonia-
     // bound, so the web can't use it). Confirmations happen client-side. Args are
     // tab-separated; the leading field (where present) is the kind "vehicle"/"tool".
-    private static void ApplyProfileCommand(AgOpenWeb.Models.Configuration.ConfigurationStore store,
-        AgOpenWeb.Services.Interfaces.IConfigurationService cfg, string cmd, string arg)
-    {
-        var a = arg.Split('\t');
-        switch (cmd)
-        {
-            case "profile.load": // <vehicle>\t<tool> — save the outgoing pair, then load
-                if (a.Length == 2)
-                {
-                    cfg.SaveProfiles(store.ActiveVehicleProfileName, store.ActiveToolProfileName);
-                    cfg.LoadProfiles(a[0], a[1]);
-                }
-                return;
-            case "profile.new": // <kind>\t<name> — duplicate the live store under a new name
-                if (a.Length == 2 && a[0] == "vehicle") cfg.SaveProfiles(a[1], store.ActiveToolProfileName);
-                else if (a.Length == 2 && a[0] == "tool") cfg.SaveProfiles(store.ActiveVehicleProfileName, a[1]);
-                return;
-            case "profile.delete": // <kind>\t<name>
-                if (a.Length == 2 && a[0] == "vehicle") cfg.DeleteVehicleProfile(a[1]);
-                else if (a.Length == 2 && a[0] == "tool") cfg.DeleteToolProfile(a[1]);
-                return;
-            case "profile.rename": // <kind>\t<old>\t<new>
-                if (a.Length == 3 && a[0] == "vehicle") cfg.RenameVehicleProfile(a[1], a[2]);
-                else if (a.Length == 3 && a[0] == "tool") cfg.RenameToolProfile(a[1], a[2]);
-                return;
-            case "profile.reset": // <kind> — CreateProfile("Default") (matches Reset-to-Default)
-                cfg.CreateProfile("Default");
-                return;
-            case "profile.configureVehicle": // <name> — make it active before the dialog opens
-                if (!string.Equals(arg, store.ActiveVehicleProfileName, System.StringComparison.OrdinalIgnoreCase))
-                {
-                    cfg.SaveProfiles(store.ActiveVehicleProfileName, store.ActiveToolProfileName);
-                    cfg.LoadProfiles(arg, store.ActiveToolProfileName);
-                }
-                return;
-            case "profile.configureTool": // <name>
-                if (!string.Equals(arg, store.ActiveToolProfileName, System.StringComparison.OrdinalIgnoreCase))
-                {
-                    cfg.SaveProfiles(store.ActiveVehicleProfileName, store.ActiveToolProfileName);
-                    cfg.LoadProfiles(store.ActiveVehicleProfileName, arg);
-                }
-                return;
-        }
-    }
-
     // NTRIP profile CRUD for the remote Network IO editor. Mirrors the native
     // MainViewModel NTRIP commands but calls INtripProfileService directly (the VM's
     // commands also drive Avalonia chain-dialog state we don't want here). The browser
@@ -382,7 +404,7 @@ public static partial class RemoteServerWiring
     private static void ApplyNtripCommand(
         AgOpenWeb.Services.Interfaces.INtripProfileService svc,
         AgOpenWeb.Models.State.ApplicationState state, IUiDispatcher dispatcher,
-        string cmd, string arg)
+        string cmd, string arg, AgOpenWeb.ViewModels.MainViewModel? vm = null, IGpsService? gps = null)
     {
         var inv = System.Globalization.CultureInfo.InvariantCulture;
         switch (cmd)
@@ -393,18 +415,45 @@ public static partial class RemoteServerWiring
             case "ntrip.setDefault": // arg = id
                 _ = svc.SetDefaultProfileAsync(arg);
                 return;
-            case "ntrip.test": // arg = host \t port \t mount \t user \t pass
+            case "ntrip.use": // arg = id: connect with that profile now
+                if (vm != null) _ = vm.UseNtripProfileAsync(arg);
+                return;
+            case "ntrip.switch": // arg = main | fallback: the service the corrections come from
+                if (vm != null && arg is "main" or "fallback")
+                    _ = vm.SwitchNtripServiceAsync(arg == "main" ? AgOpenWeb.Services.Interfaces.NtripService.Main : AgOpenWeb.Services.Interfaces.NtripService.Fallback);
+                return;
+            case "ntrip.test": // arg = host \t port \t mount \t user \t pass \t id \t fallback (1 = the fallback's); a masked pass = the stored one
             {
                 var t = arg.Split('\t');
                 if (t.Length < 3) return;
                 int.TryParse(t.ElementAtOrDefault(1), System.Globalization.NumberStyles.Integer, inv, out var tport);
                 if (tport == 0) tport = 2101;
+                if (t.Length > 4 && t[4] == AgOpenWeb.RemoteServer.Secrets.Mask)
+                    t[4] = StoredPassword(svc.Profiles.FirstOrDefault(p => p.Id == t.ElementAtOrDefault(5)), t.ElementAtOrDefault(6) == "1", t[0], tport);
                 state.Connections.NtripTestStatus = "Testing connection...";
                 _ = TestNtripAndReportAsync(dispatcher, state, t[0], tport, t[2],
                     t.ElementAtOrDefault(3) ?? "", t.ElementAtOrDefault(4) ?? "");
                 return;
             }
-            case "ntrip.save": // id \t name \t host \t port \t mount \t user \t pass \t auto \t default \t assoc(csv)
+            case "ntrip.mountpoints": // arg = host \t port \t user \t pass \t id \t fallback (1 = the fallback's); a masked pass = the stored one
+            {
+                var t = arg.Split('\t');
+                if (t.Length < 2 || string.IsNullOrWhiteSpace(t[0])) return;
+                bool forFallback = t.ElementAtOrDefault(5) == "1";
+                int.TryParse(t[1], System.Globalization.NumberStyles.Integer, inv, out var mport);
+                if (mport == 0) mport = 2101;
+                string pass = t.ElementAtOrDefault(3) ?? "";
+                if (pass == AgOpenWeb.RemoteServer.Secrets.Mask)
+                    pass = StoredPassword(svc.Profiles.FirstOrDefault(p => p.Id == t.ElementAtOrDefault(4)), forFallback, t[0], mport);
+                _ = FetchMountpointsAsync(dispatcher, state, t[0], mport, t.ElementAtOrDefault(2) ?? "", pass,
+                    forFallback ? "fallback" : "main", gps);
+                return;
+            }
+            case "ntrip.mountpoints.clear": // the picker is closed: the list is not kept
+                CancelMountpoints();
+                state.Connections.NtripMountpoints = AgOpenWeb.Models.Ntrip.NtripMountpointList.None;
+                return;
+            case "ntrip.save": // id \t name \t host \t port \t mount \t user \t pass \t auto \t default \t assoc(csv) [\t fallback: present \t host \t port \t mount \t user \t pass \t auto \t after]
             {
                 var f = arg.Split('\t');
                 if (f.Length < 9) return;
@@ -422,12 +471,36 @@ public static partial class RemoteServerWiring
                 var profile = new AgOpenWeb.Models.Ntrip.NtripProfile
                 {
                     Name = f[1], CasterHost = f[2], CasterPort = port, MountPoint = f[4],
-                    Username = f[5], Password = f[6],
+                    Username = f[5],
+                    // The editor only has the mask for a stored password: keep that one.
+                    Password = f[6] == AgOpenWeb.RemoteServer.Secrets.Mask ? existing?.Password ?? "" : f[6],
                     AutoConnectOnFieldLoad = f[7] == "1", IsDefault = f[8] == "1",
                     AssociatedFields = assoc,
                 };
+                // The fallback block comes after the associated fields; without it an edit keeps the profile's fallback.
                 if (existing != null) { profile.Id = existing.Id; profile.FilePath = existing.FilePath; }
-                _ = svc.SaveProfileAsync(profile);
+                profile.Fallback = AgOpenWeb.Services.NtripProfileFields.FallbackFrom(f, 10, existing?.Fallback, AgOpenWeb.RemoteServer.Secrets.Mask);
+                // Copy the old caster settings before saving (the save may update the stored
+                // profile in place), to tell whether the connected one changed.
+                var before = existing == null ? null : new AgOpenWeb.Models.Ntrip.NtripProfile
+                {
+                    Name = existing.Name, CasterHost = existing.CasterHost, CasterPort = existing.CasterPort,
+                    MountPoint = existing.MountPoint, Username = existing.Username, Password = existing.Password,
+                    Fallback = existing.Fallback?.Clone(),   // a copy: the editor will change the fallback in place
+                };
+                // The first profile is the default one, so it has something to connect with.
+                if (existing == null && !svc.Profiles.Any(p => p.IsDefault)) profile.IsDefault = true;
+                _ = SaveNewProfileAsync();
+                async Task SaveNewProfileAsync()
+                {
+                    await svc.SaveProfileAsync(profile);
+                    // back on the host loop: the connect sets VM and State properties
+                    if (existing == null && vm != null) dispatcher.Post(() => _ = vm.ConnectNewNtripProfileAsync(profile));
+                }
+                // Editing the profile we're connected with: reconnect with the new settings
+                // now, not at the next field load / restart (#111).
+                if (before != null && vm != null)
+                    _ = vm.ReconnectNtripIfConnectedAsync(before, profile);
                 return;
             }
         }
@@ -457,8 +530,9 @@ public static partial class RemoteServerWiring
         if (cmd == "field.fromIsoXml") { if (a.Length >= 2) vm.RemoteCreateFromIsoXml(a[0], a[1]); return; } // file \t newName
         if (cmd == "field.fromKml") { if (a.Length >= 2) vm.RemoteCreateFromKml(a[0], a[1]); return; }       // file \t newName
         var sw = vm.EnsureRemoteStartWorkSession();
-        sw.SelectedField = sw.Fields.FirstOrDefault(f =>
-            string.Equals(f.Name, a[0], System.StringComparison.OrdinalIgnoreCase));
+        // The exact name first: on Linux two fields can differ only in capitals.
+        sw.SelectedField = sw.Fields.FirstOrDefault(f => f.Name == a[0])
+            ?? sw.Fields.FirstOrDefault(f => string.Equals(f.Name, a[0], System.StringComparison.OrdinalIgnoreCase));
         switch (cmd)
         {
             case "field.openOnly":
@@ -478,11 +552,14 @@ public static partial class RemoteServerWiring
             }
             case "field.deleteField":
                 if (sw.DeleteFieldCommand.CanExecute(null)) sw.DeleteFieldCommand.Execute(null);
+                else if (sw.SelectedField != null) vm.ReportFailure("Close the field before deleting it");
                 return;
             case "field.deleteJob": // field \t taskName
             {
                 var job = sw.JobsForSelectedField.FirstOrDefault(j => j.TaskName == a.ElementAtOrDefault(1));
-                if (job != null && sw.DeleteJobCommand.CanExecute(job)) sw.DeleteJobCommand.Execute(job);
+                if (job == null) return;
+                if (sw.DeleteJobCommand.CanExecute(job)) sw.DeleteJobCommand.Execute(job);
+                else vm.ReportFailure("Close the job before deleting it");
                 return;
             }
         }
@@ -490,23 +567,31 @@ public static partial class RemoteServerWiring
 
     // File / Application Menu write-side. Reset (client-confirmed), hotkey edits, and bug-report
     // dump go straight to the services / ConfigStore (no native dialogs). Language rides the VM.
-    private static void ApplyAppCommand(IServiceProvider services, string cmd, string arg)
+    private static void ApplyAppCommand(IServiceProvider services, AgOpenWeb.ViewModels.MainViewModel vm, string cmd, string arg,
+        Func<string>? browsersSummary = null)
     {
         var configService = services.GetRequiredService<IConfigurationService>();
         var store = services.GetRequiredService<AgOpenWeb.Models.Configuration.ConfigurationStore>();
         switch (cmd)
         {
             case "app.resetSettings":
-                services.GetRequiredService<ISettingsService>().ResetToDefaults();
+            {
+                // Save between reset and reload (as the native command does) — LoadAppSettings
+                // re-reads the file, so without it the old settings came straight back (#107).
+                var settings = services.GetRequiredService<ISettingsService>();
+                settings.ResetToDefaults();
+                settings.Save();
                 configService.LoadAppSettings();
                 return;
+            }
             case "app.setHotkey": // arg = Action:Key
             {
                 var ci = arg.IndexOf(':');
                 if (ci > 0 && System.Enum.TryParse<AgOpenWeb.Models.Configuration.HotkeyAction>(arg[..ci], out var act))
                 {
-                    store.Hotkeys.SetKeyForAction(act, arg[(ci + 1)..]);
-                    configService.SaveAppSettings();
+                    var key = arg[(ci + 1)..];
+                    if (store.Hotkeys.SetKeyForAction(act, key)) configService.SaveAppSettings();
+                    else vm.ReportFailure($"{key} is already the key for {store.Hotkeys.BoundTo(key)}");
                 }
                 return;
             }
@@ -521,24 +606,142 @@ public static partial class RemoteServerWiring
                 var desc = t.ElementAtOrDefault(1) ?? "";
                 var state = services.GetRequiredService<AgOpenWeb.Models.State.ApplicationState>();
                 state.BugReportStatus = "Creating bug report…";
+                BugReportRemote.NewReport(null);
+                var dir = System.IO.Path.Combine(
+                    AgOpenWeb.Services.AppDataRoot.Documents, "BugReports");
+                var slug = string.IsNullOrWhiteSpace(title) ? "untitled"
+                    : new string(title.Trim().ToLowerInvariant().Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray());
+                if (slug.Length > 60) slug = slug.Substring(0, 60);
+                var notes = string.IsNullOrWhiteSpace(title) ? desc : "# " + title + "\n\n" + desc;
+                // The state as it is now, read here on the host loop; the coverage save, field files
+                // and compression run in the background, so a slow tablet keeps steering and
+                // simulating while the report is written (1-4 s held the loop, GPS lost).
+                AgOpenWeb.Services.DebugDumpService.DumpSnapshot snap;
                 try
                 {
-                    var dir = System.IO.Path.Combine(
-                        System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments),
-                        "AgOpenWeb", "BugReports");
-                    var slug = string.IsNullOrWhiteSpace(title) ? "untitled"
-                        : new string(title.Trim().ToLowerInvariant().Select(ch => char.IsLetterOrDigit(ch) ? ch : '-').ToArray());
-                    if (slug.Length > 60) slug = slug.Substring(0, 60);
-                    var notes = string.IsNullOrWhiteSpace(title) ? desc : "# " + title + "\n\n" + desc;
-                    var zip = AgOpenWeb.Services.DebugDumpService.CreateDump(
-                        services.GetRequiredService<ISettingsService>(), state, store,
-                        additionalNotes: notes, outputDirectory: dir, filePrefix: "bugreport_" + slug);
-                    state.BugReportStatus = "Saved: " + zip;
+                    snap = AgOpenWeb.Services.DebugDumpService.Capture(
+                        services.GetRequiredService<ISettingsService>(), AgOpenWeb.Models.State.RuntimeStateCapture.From(state), store,
+                        ntripRtcmReport: AgOpenWeb.Services.NtripRtcmReport.Build(
+                            services.GetService<INtripClientService>(), services.GetService<IGpsService>()),
+                        ntripSessionReport: AgOpenWeb.Services.NtripSupportReport.Build(
+                            services.GetService<INtripClientService>(), services.GetService<IGpsService>()),
+                        ntripSummary: AgOpenWeb.Services.NtripSupportReport.Summary(services.GetService<INtripClientService>()),
+                        browsersSummary: browsersSummary?.Invoke());
                 }
-                catch (Exception ex) { state.BugReportStatus = "Error: " + ex.Message; }
+                catch (Exception ex) { state.BugReportStatus = "Error: " + ex.Message; return; }
+                var job = ActiveJobForDump(services, state);
+                var coverage = services.GetRequiredService<ICoverageMapService>();
+                var ui = services.GetRequiredService<IUiDispatcher>();
+                _ = Task.Run(() =>
+                {
+                    string status;
+                    string? zip = null;
+                    try
+                    {
+                        if (job is { } j)
+                        {
+                            try { coverage.SaveToFile(j.FieldDir, j.Task); }
+                            catch { /* the dump still carries the last autosave */ }
+                        }
+                        zip = AgOpenWeb.Services.DebugDumpService.WriteDump(snap,
+                            additionalNotes: notes, outputDirectory: dir, filePrefix: "bugreport_" + slug,
+                            activeJobTaskName: job?.Task);
+                        status = "Saved: " + zip;
+                    }
+                    catch (Exception ex) { status = "Error: " + ex.Message; }
+                    ui.Post(() =>
+                    {
+                        state.BugReportStatus = status;
+                        if (zip != null) BugReportRemote.NewReport(zip);
+                    });
+                });
                 return;
             }
+            case "app.bugReport.send": // arg = zip name \t GitHub user \t email \t title \t description
+                BugReportRemote.Send(arg, services.GetRequiredService<ISettingsService>().Settings.Language ?? "");
+                return;
         }
+    }
+
+    /// <summary>
+    /// The open job's field folder and task name, whose coverage the dump saves first and
+    /// carries (<see cref="AgOpenWeb.Services.DebugDumpService.WriteDump"/>); null with no job.
+    /// </summary>
+    private static (string FieldDir, string Task)? ActiveJobForDump(IServiceProvider services, AgOpenWeb.Models.State.ApplicationState state)
+    {
+        var task = services.GetRequiredService<IJobService>().ActiveJob?.TaskName;
+        var fieldDir = state.Field.ActiveField?.DirectoryPath;
+        if (string.IsNullOrWhiteSpace(task) || string.IsNullOrEmpty(fieldDir)) return null;
+        return (fieldDir, task);
+    }
+
+    // A stored password goes only to the host it belongs to. The editor holds the mask, not the password, so
+    // a host typed over the stored one gets no password rather than the stored one.
+    private static string StoredPassword(AgOpenWeb.Models.Ntrip.NtripProfile? profile, bool fallback, string host, int port)
+    {
+        string? storedHost, stored;
+        int storedPort;
+        if (fallback)
+        {
+            if (profile?.Fallback is not { } f) return "";
+            (storedHost, storedPort, stored) = (f.CasterHost, f.CasterPort, f.Password);
+        }
+        else
+        {
+            if (profile == null) return "";
+            (storedHost, storedPort, stored) = (profile.CasterHost, profile.CasterPort, profile.Password);
+        }
+        return string.Equals(storedHost?.Trim(), host.Trim(), StringComparison.OrdinalIgnoreCase) && storedPort == port ? stored ?? "" : "";
+    }
+
+    // One request at a time is wanted: a new one, or closing the picker, stops the one still running. The
+    // counter is not the state's, so a reset of the state cannot hand out a number twice.
+    private static int _mountpointSeq;
+    private static CancellationTokenSource? _mountpointsCts;
+
+    private static void CancelMountpoints() => Interlocked.Exchange(ref _mountpointsCts, null)?.Cancel();
+
+    // Asks a caster for its mount points off the UI thread and puts the answer in the state. The list is
+    // nearest first when the receiver has a position.
+    private static async Task FetchMountpointsAsync(
+        IUiDispatcher dispatcher, AgOpenWeb.Models.State.ApplicationState state,
+        string host, int port, string user, string pass, string which, IGpsService? gps)
+    {
+        CancelMountpoints();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        _mountpointsCts = cts;
+        int seq = Interlocked.Increment(ref _mountpointSeq);
+        state.Connections.NtripMountpoints = new AgOpenWeb.Models.Ntrip.NtripMountpointList(seq, which, "loading", []);
+
+        var position = gps?.CurrentData is { FixQuality: > 0 } data
+            && (data.CurrentPosition.Latitude != 0 || data.CurrentPosition.Longitude != 0)
+            ? (data.CurrentPosition.Latitude, data.CurrentPosition.Longitude)
+            : ((double Latitude, double Longitude)?)null;
+        AgOpenWeb.Services.SourcetableResult result;
+        try
+        {
+            result = await AgOpenWeb.Services.NtripSourcetable.FetchAsync(host, port, user, pass, position,
+                new AgOpenWeb.Services.NtripTimeouts(), cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;   // replaced by a newer request, or the picker was closed: nobody waits for this one
+        }
+        catch (Exception ex)
+        {
+            result = new AgOpenWeb.Services.SourcetableResult([], ex.Message);
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _mountpointsCts, null, cts);   // before it is disposed: CancelMountpoints must not reach a disposed one
+        }
+        dispatcher.Post(() =>
+        {
+            if (state.Connections.NtripMountpoints.Seq != seq) return;
+            string status = result.Error != null ? "error:" + result.Error : result.Partial ? "partial" : "";
+            state.Connections.NtripMountpoints = new AgOpenWeb.Models.Ntrip.NtripMountpointList(
+                seq, which, status, result.Error == null ? result.Mountpoints : []);
+        });
     }
 
     private static async Task TestNtripAndReportAsync(

@@ -1,7 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2026 AgOpenWeb Contributors
-//
-// Licensed under GNU GPL v3. See LICENSE.md.
+// SPDX-License-Identifier: Apache-2.0
 
 using System.Windows.Input;
 using AgOpenWeb.Models;
@@ -24,6 +23,10 @@ namespace AgOpenWeb.Services.Tests;
 ///   the prior calibration.
 /// - G: it ignored <c>InvertWas</c> entirely, so a second press in
 ///   inverted mode drove the offset the wrong direction.
+///
+/// #103: the sign is <c>offset -= angle * cpd</c> for BOTH invert states — the real firmware
+/// formula (see WasCalibration / WasCalibrationTests). These expectations previously
+/// matched the emulator's wrong sign in the non-inverted case.
 /// </summary>
 [TestFixture]
 [NonParallelizable] // ConfigurationStore singleton.
@@ -58,6 +61,17 @@ public class WasCalibrationStepViewModelTests
             WorkSwitchActive: false, SteerSwitchActive: false,
             RemoteButtonPressed: false, VwasFusionActive: false,
             PwmDisplay: 0));
+        _autoSteer.LastSteerDataUtc.Returns(DateTime.UtcNow);
+    }
+
+    /// <summary>
+    /// The host sent the new offset and the module reports 0° (the step then takes the
+    /// next press as a new zero, not a repeat of the one it is still waiting on).
+    /// </summary>
+    private void GivenModuleApplied()
+    {
+        GivenReportedAngle(0.0);
+        _autoSteer.StateUpdated += Raise.Event<EventHandler<VehicleStateSnapshot>>(_autoSteer, new VehicleStateSnapshot());
     }
 
     [Test]
@@ -69,23 +83,24 @@ public class WasCalibrationStepViewModelTests
         _store.AutoSteer.InvertWas = false;
         GivenReportedAngle(5.0);
 
-        var step = new WasCalibrationStepViewModel(_configService, _autoSteer);
+        var step = new WasCalibrationStepViewModel(_configService, _autoSteer) { IsActive = true };
         ((ICommand)step.ZeroWasCommand).Execute(null);
 
-        // Press 1: offset = 0 + 1 * 5 * 100 = 500.
-        Assert.That(step.WasOffset, Is.EqualTo(500),
+        // Press 1: offset = 0 - 5 * 100 = -500.
+        Assert.That(step.WasOffset, Is.EqualTo(-500),
             "First Zero-WAS press should drive offset to raw-counts equivalent of the live angle");
 
         // Simulate the host pushing the new offset to the module and the
         // operator moving the wheel a further 5°. The module's next
         // PGN 253 reports the new post-calibration angle of 5°.
         _store.AutoSteer.WasOffset = step.WasOffset;
+        GivenModuleApplied();
         GivenReportedAngle(5.0);
 
         ((ICommand)step.ZeroWasCommand).Execute(null);
 
-        // Press 2: offset = 500 + 1 * 5 * 100 = 1000.
-        Assert.That(step.WasOffset, Is.EqualTo(1000),
+        // Press 2: offset = -500 - 5 * 100 = -1000.
+        Assert.That(step.WasOffset, Is.EqualTo(-1000),
             "Second Zero-WAS press must accumulate against the prior offset, not replace it");
     }
 
@@ -100,20 +115,21 @@ public class WasCalibrationStepViewModelTests
         _store.AutoSteer.InvertWas = true;
         GivenReportedAngle(-5.0);
 
-        var step = new WasCalibrationStepViewModel(_configService, _autoSteer);
+        var step = new WasCalibrationStepViewModel(_configService, _autoSteer) { IsActive = true };
         ((ICommand)step.ZeroWasCommand).Execute(null);
 
-        // Press 1: offset = 0 + (-1) * (-5 * 100) = 500.
+        // Press 1: offset = 0 - (-5 * 100) = 500.
         Assert.That(step.WasOffset, Is.EqualTo(500));
 
         // Module now reports -5° again (wheel moved 5° further in the
         // physical direction the inversion treats as negative display).
         _store.AutoSteer.WasOffset = step.WasOffset;
+        GivenModuleApplied();
         GivenReportedAngle(-5.0);
 
         ((ICommand)step.ZeroWasCommand).Execute(null);
 
-        // Press 2: offset = 500 + (-1) * (-5 * 100) = 1000.
+        // Press 2: offset = 500 - (-5 * 100) = 1000.
         Assert.That(step.WasOffset, Is.EqualTo(1000),
             "Inverted accumulator must move the offset in the same monotonic " +
             "direction so the live reading lands at zero after each press");
@@ -131,7 +147,7 @@ public class WasCalibrationStepViewModelTests
         _store.AutoSteer.InvertWas = false;
         GivenReportedAngle(0.0);
 
-        var step = new WasCalibrationStepViewModel(_configService, _autoSteer);
+        var step = new WasCalibrationStepViewModel(_configService, _autoSteer) { IsActive = true };
         ((ICommand)step.ZeroWasCommand).Execute(null);
 
         Assert.That(step.WasOffset, Is.EqualTo(700),

@@ -1,10 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// SPDX-License-Identifier: Apache-2.0
 
 using System;
 using System.Globalization;
@@ -15,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AgOpenWeb.VirtualModules;
 using AgOpenWeb.Models;
+using AgOpenWeb.Models.Configuration;
 using AgOpenWeb.Models.Communication;
 using AgOpenWeb.Services;
 using AgOpenWeb.Services.Interfaces;
@@ -84,8 +81,8 @@ public class VirtualModuleTests
         // Speed: 15.0 km/h = 150 raw
         data[0] = 150 & 0xFF;
         data[1] = (150 >> 8) & 0xFF;
-        // Status: engaged + GPS valid
-        data[2] = 0x0C;
+        // Status: 1 = steer (#125)
+        data[2] = 1;
         // Steer angle: -12.5 degrees = -1250 raw
         short angle = -1250;
         data[3] = (byte)(angle & 0xFF);
@@ -96,7 +93,6 @@ public class VirtualModuleTests
         Assert.That(cmd.SpeedKmh, Is.EqualTo(15.0).Within(0.1));
         Assert.That(cmd.SteerAngleDeg, Is.EqualTo(-12.5).Within(0.1));
         Assert.That(cmd.IsEngaged, Is.True);
-        Assert.That(cmd.IsGpsValid, Is.True);
     }
 
     #endregion
@@ -178,7 +174,7 @@ public class VirtualModuleTests
         mockGps.When(x => x.UpdateGpsData(Arg.Any<GpsData>()))
             .Do(ci => received = ci.Arg<GpsData>());
 
-        var parser = new NmeaParserServiceFast(mockGps);
+        var parser = new NmeaParserServiceFast(mockGps, new ConfigurationStore());
         parser.ParseBuffer(data, data.Length);
 
         Assert.That(received, Is.Not.Null, "NmeaParser should parse the $PANDA sentence");
@@ -251,7 +247,7 @@ public class VirtualModuleTests
         short speed = 100; // 10 km/h
         data[0] = (byte)(speed & 0xFF);
         data[1] = (byte)((speed >> 8) & 0xFF);
-        data[2] = 0x0C; // engaged + GPS valid
+        data[2] = 1; // status 1 = steer (#125)
         short angle = 1500; // 15.0 degrees
         data[3] = (byte)(angle & 0xFF);
         data[4] = (byte)((angle >> 8) & 0xFF);
@@ -459,7 +455,7 @@ public class VirtualModuleTests
         int parsedCount = 0;
         mockGps.When(x => x.UpdateGpsData(Arg.Any<GpsData>()))
             .Do(ci => { if (ci.Arg<GpsData>().FixQuality > 0) parsedCount++; });
-        var parser = new NmeaParserServiceFast(mockGps);
+        var parser = new NmeaParserServiceFast(mockGps, new ConfigurationStore());
 
         // Read all sent frames
         for (int i = 0; i < 10; i++)

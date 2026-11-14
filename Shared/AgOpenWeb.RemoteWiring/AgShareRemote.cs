@@ -1,7 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2026 AgOpenWeb Contributors
-//
-// Licensed under GNU GPL v3. See LICENSE.md.
+// SPDX-License-Identifier: Apache-2.0
 
 // Host-side AgShare orchestration for the remote (web) Field Operations panel. The native
 // AgShare logic lives in the dialog code-behind (View layer, deleted at headless cutover),
@@ -40,7 +39,14 @@ internal static class AgShareRemote
         var key = c.AgShareApiKey ?? "";
         var root = settings.Settings.FieldsDirectory;
         if (string.IsNullOrWhiteSpace(root))
-            root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "AgOpenWeb", "Fields");
+            root = Path.Combine(AppDataRoot.Documents, "Fields");
+        // AgShare Enabled (AgOpenGPS Settings.AgShareEnabled gates the AgShare actions): with it
+        // off, only the connection test works so the settings can still be checked (#110).
+        if (!c.AgShareEnabled && cmd != "agshare.test")
+        {
+            Set(state, "AgShare is turned off. Turn it on in AgShare settings", false);
+            return;
+        }
         switch (cmd)
         {
             case "agshare.test": _ = TestAsync(state, url, key); return;
@@ -108,38 +114,48 @@ internal static class AgShareRemote
         Set(s, "Uploading…", true);
         var client = new AgShareClient(url, key);
         var uploader = new AgShareUploaderService();
-        var boundarySvc = new BoundaryFileService();
+        var fields = new FieldService();
         int ok = 0, fail = 0;
         foreach (var name in names)
         {
-            try { var (success, _) = await UploadOne(client, uploader, boundarySvc, Path.Combine(root, name), name, isPublic); if (success) ok++; else fail++; }
+            try { var (success, _) = await UploadOne(client, uploader, fields, Path.Combine(root, name), name, isPublic); if (success) ok++; else fail++; }
             catch { fail++; }
             Set(s, $"Uploaded {ok}, failed {fail} of {names.Count}…", true);
         }
         Set(s, $"Uploaded {ok} field(s)" + (fail > 0 ? $", {fail} failed" : ""), false);
     }
 
-    // Mirrors AgShareUploadDialogPanel.UploadSingleFieldAsync: origin from Field.txt StartFix,
-    // boundary via BoundaryFileService, existing cloud id from agshare.txt.
-    private static async Task<(bool, string)> UploadOne(AgShareClient client, AgShareUploaderService uploader,
-        BoundaryFileService boundarySvc, string dir, string name, bool isPublic)
+    // The field's AB lines and curves, as AgOpenGPS's uploader sends its whole track list
+    // (AgShareUploader.cs). This used to send an empty list, so tracks never reached AgShare
+    // (#111). The uploader converts AB and Curve; other kinds are skipped there.
+    private static List<TrackLineInput> LoadTracksForUpload(IFieldService fields, string dir)
     {
-        var origin = new Wgs84(0, 0);
-        var fieldTxt = Path.Combine(dir, "Field.txt");
-        if (File.Exists(fieldTxt))
+        var result = new List<TrackLineInput>();
+        foreach (var t in fields.PeekTracks(dir))
         {
-            var lines = await File.ReadAllLinesAsync(fieldTxt);
-            for (int i = 0; i < lines.Length - 1; i++)
-                if (lines[i].Contains("StartFix"))
-                {
-                    var coords = lines[i + 1].Split(',');
-                    if (coords.Length >= 2 && double.TryParse(coords[0], out var lat) && double.TryParse(coords[1], out var lon))
-                        origin = new Wgs84(lat, lon);
-                    break;
-                }
+            if (t.Points.Count < 2) continue;
+            bool ab = t.Points.Count == 2;
+            result.Add(new TrackLineInput
+            {
+                Name = t.Name,
+                Mode = ab ? Models.TrackMode.AB : Models.TrackMode.Curve,
+                PtA = t.Points[0],
+                PtB = t.Points[^1],
+                CurvePoints = ab ? new List<Vec3>() : t.Points.ToList(),
+            });
         }
+        return result;
+    }
+
+    // Origin and boundary from the field (read only: an AgOpenGPS-format field uploads without
+    // being imported), existing cloud id from agshare.txt.
+    private static async Task<(bool, string)> UploadOne(AgShareClient client, AgShareUploaderService uploader,
+        IFieldService fields, string dir, string name, bool isPublic)
+    {
+        var field = fields.PeekField(dir);
+        var origin = new Wgs84(field.Origin.Latitude, field.Origin.Longitude);
         var boundaries = new List<List<Vec3>>();
-        var b = boundarySvc.LoadBoundary(dir);
+        var b = field.Boundary;
         if (b?.OuterBoundary != null && b.OuterBoundary.Points.Count > 0)
         {
             boundaries.Add(b.OuterBoundary.Points.Select(p => new Vec3(p.Easting, p.Northing, p.Heading)).ToList());
@@ -154,7 +170,7 @@ internal static class AgShareRemote
         var input = new FieldSnapshotInput
         {
             FieldId = existing, FieldName = name, Origin = origin, Boundaries = boundaries,
-            Tracks = new List<TrackLineInput>(), IsPublic = isPublic, Convergence = 0,
+            Tracks = LoadTracksForUpload(fields, dir), IsPublic = isPublic, Convergence = 0,
         };
         var (resOk, msg, _) = await uploader.UploadFieldAsync(input, client, dir);
         return (resOk, msg);

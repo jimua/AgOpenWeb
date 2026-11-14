@@ -3,7 +3,7 @@ name: Phase D telemetry
 overview: Drive singulation and seed rate from the Desktop Core telemetry source over a Seeder-owned WebSocket frame, and show one seed-rate row per section so both widgets always list the same sections.
 todos:
   - id: wire-hook
-    content: Reserve WS type 22 and ExtraFrameProvider on RemoteServerHost / MapBroadcaster (2 Hz + connect seed)
+    content: Reserve WS type 30 and ExtraFrameProvider on RemoteServerHost / MapBroadcaster (2 Hz + connect seed)
     status: pending
   - id: core-source
     content: Per-section seed rate on the sim source, frame encoder, and SeederTelemetryWiring.Attach from Desktop
@@ -27,7 +27,7 @@ Today the SPA timer in [seederSim.ts](SeederTerminal/SeederTerminal.Web/src/lib/
 flowchart LR
   sections[ISectionControlService]
   source[ISeederTelemetrySource]
-  frame["WS frame type 22"]
+  frame["WS frame type 30"]
   widgets[Singulation and Seed rate widgets]
   sim[Client sim timer]
   sections --> source
@@ -40,7 +40,7 @@ flowchart LR
 
 Leave `TickDto` and `StatusDto` positional layouts alone so the reference PWA on `:5174` keeps decoding.
 
-- Reserve `WireCodec.SeederTelemetry = 22` in [WireCodec.cs](Shared/AgOpenWeb.RemoteServer/WireCodec.cs). AgOpenWeb hosts never send it. Both transport decoders already ignore an unknown type.
+- Reserve `WireCodec.SeederTelemetry = 30` in [WireCodec.cs](Shared/AgOpenWeb.RemoteServer/WireCodec.cs). AgOpenWeb hosts never send it. Both transport decoders already ignore an unknown type.
 - Add `Func<byte[]?>? ExtraFrameProvider` on [RemoteServerHost](Shared/AgOpenWeb.RemoteServer/RemoteServerHost.cs) and [MapBroadcaster](Shared/AgOpenWeb.RemoteServer/MapBroadcaster.cs), same set-before-or-after-start pattern as `WizardProvider`.
 - Call it under a lock from the existing ~2 Hz status slot in `RunAsync`, and append a non-null frame in `BuildSeed` so a new client gets values immediately.
 
@@ -68,10 +68,10 @@ Call `Attach` from Desktop `StartBackendAsync` after `WebBackend.StartAsync`, us
 
 ## SPA
 
-- Decode type 22 in [transport.js](SeederTerminal/SeederTerminal.Web/src/lib/remote/transport.js) and add `onSeederTelemetry` in [session.ts](SeederTerminal/SeederTerminal.Web/src/lib/remote/session.ts).
+- Decode type 30 in [transport.js](SeederTerminal/SeederTerminal.Web/src/lib/remote/transport.js) and add `onSeederTelemetry` in [session.ts](SeederTerminal/SeederTerminal.Web/src/lib/remote/session.ts).
 - [seederSim.ts](SeederTerminal/SeederTerminal.Web/src/lib/stores/seederSim.ts) stores one section list used by both widgets (`index`, `isOn`, `singulationPercent`, `seedRateActual`) plus setpoint, actual, and total singulation.
 - Product mode: the first host frame with `count > 0` stops the browser timer and owns the stores.
-- Dev mode (`npm run dev` proxied to AgOpenWeb `:5174`, which never sends type 22): start the existing ~900 ms client sim after a short wait (~1.5 s) so the Seeder Desktop WebView does not flash fake numbers. Client sim uses the same planting-code rule and the same per-section rate fields, with section count from `tick.sections` (fallback 6 only before the first tick).
+- Dev mode (`npm run dev` proxied to AgOpenWeb `:5174`, which never sends type 30): start the existing ~900 ms client sim after a short wait (~1.5 s) so the Seeder Desktop WebView does not flash fake numbers. Client sim uses the same planting-code rule and the same per-section rate fields, with section count from `tick.sections` (fallback 6 only before the first tick).
 - Disconnect keeps the last host values. Sim resumes only when a host frame has never arrived.
 
 [SeedRateWidget.svelte](SeederTerminal/SeederTerminal.Web/src/lib/components/SeedRateWidget.svelte) keeps the actual / setpoint / deviation header and adds one row per section, same indices and on/off coloring as [SingulationWidget.svelte](SeederTerminal/SeederTerminal.Web/src/lib/components/SingulationWidget.svelte). Row bar width is `sectionRate / setpoint` (capped like today’s single bar). Same `max-height` and scroll as singulation. Both landscape and portrait copies in [App.svelte](SeederTerminal/SeederTerminal.Web/src/App.svelte) are that one component. No new i18n strings.

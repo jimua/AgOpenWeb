@@ -1,18 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
 using System;
 using System.Collections.Generic;
@@ -53,7 +41,8 @@ namespace AgOpenWeb.Services.IsoXml
             List<IsoXmlTrack> guidanceLines,
             LocalPlane localPlane,
             IsoXmlVersion version,
-            string softwareVersion)
+            string softwareVersion,
+            IReadOnlyList<IsoXmlDevice>? devices = null)
         {
             if (!Enum.IsDefined(typeof(IsoXmlVersion), version))
                 throw new ArgumentOutOfRangeException(nameof(version), version, "Invalid version");
@@ -62,8 +51,66 @@ namespace AgOpenWeb.Services.IsoXml
 
             SetFileInformation(isoxml, version, softwareVersion);
             AddPartfield(isoxml, designator, area, boundaries, headlandLines, guidanceLines, localPlane, version);
+            if (devices != null)
+                foreach (var d in devices) AddDevice(isoxml, d);
 
             isoxml.Save();
+        }
+
+        /// <summary>ISOBUS DDI 157 "Connector Type".</summary>
+        private const ushort DdiConnectorType = 157;
+
+        /// <summary>
+        /// A device description (DVC) for the vehicle or tool (#110): a device element, and
+        /// when the coupling type is known a connector element carrying it as a DDI 157
+        /// property (ISO 11783-10).
+        /// </summary>
+        private static void AddDevice(ISOXML isoxml, IsoXmlDevice d)
+        {
+            var device = new ISODevice
+            {
+                DeviceDesignator = string.IsNullOrWhiteSpace(d.Designator) ? "Device" : d.Designator,
+                // Placeholder NAME: self-configurable, agricultural industry group (2).
+                ClientNAME = new byte[] { 0, 0, 0, 0, 0, 0, 0, 0xA0 },
+                DeviceStructureLabel = new byte[7],
+                DeviceLocalizationLabel = new byte[] { 0x65, 0x6E, 0x50, 0x00, 0x55, 0x55, 0xFF }, // "en", metric
+            };
+            isoxml.IdTable.AddObjectAndAssignIdIfNone(device);
+
+            var root = new ISODeviceElement
+            {
+                DeviceElementObjectId = 1,
+                DeviceElementType = ISODeviceElementType.device,
+                DeviceElementDesignator = device.DeviceDesignator,
+                DeviceElementNumber = 0,
+                ParentObjectId = 0,
+            };
+            isoxml.IdTable.AddObjectAndAssignIdIfNone(root);
+            device.DeviceElement.Add(root);
+
+            if (d.ConnectorType >= 0)
+            {
+                var connector = new ISODeviceElement
+                {
+                    DeviceElementObjectId = 2,
+                    DeviceElementType = ISODeviceElementType.connector,
+                    DeviceElementDesignator = "Connector",
+                    DeviceElementNumber = 1,
+                    ParentObjectId = 1,
+                };
+                isoxml.IdTable.AddObjectAndAssignIdIfNone(connector);
+                connector.DeviceObjectReference.Add(new ISODeviceObjectReference { DeviceObjectId = 3 });
+                device.DeviceElement.Add(connector);
+                device.DeviceProperty.Add(new ISODeviceProperty
+                {
+                    DevicePropertyObjectId = 3,
+                    DevicePropertyDDI = new[] { (byte)(DdiConnectorType >> 8), (byte)(DdiConnectorType & 0xFF) },
+                    DevicePropertyValue = d.ConnectorType,
+                    DevicePropertyDesignator = "Connector Type",
+                });
+            }
+
+            isoxml.Data.Device.Add(device);
         }
 
         private static void SetFileInformation(ISOXML isoxml, IsoXmlVersion version, string softwareVersion)
@@ -176,6 +223,7 @@ namespace AgOpenWeb.Services.IsoXml
         private static void AddTracks(ISOXML isoxml, ISOPartfield partfield, List<IsoXmlTrack> tracks, LocalPlane localPlane, IsoXmlVersion version)
         {
             if (tracks == null) return;
+            int gpnId = 0; // the library's IdTable doesn't number GPNs
 
             foreach (IsoXmlTrack track in tracks)
             {
@@ -201,7 +249,8 @@ namespace AgOpenWeb.Services.IsoXml
 
                             var guidancePattern = new ISOGuidancePattern
                             {
-                                GuidancePatternId = guidanceGroup.GuidanceGroupId,
+                                // Its own GPN id: reusing the group's GGP id is invalid ISO 11783-10.
+                                GuidancePatternId = "GPN" + (++gpnId).ToString(System.Globalization.CultureInfo.InvariantCulture),
                                 GuidancePatternPropagationDirection = ISOGuidancePatternPropagationDirection.Bothdirections,
                                 GuidancePatternExtension = ISOGuidancePatternExtension.Frombothfirstandlastpoint,
                                 GuidancePatternGNSSMethod = ISOGuidancePatternGNSSMethod.Desktopgenerateddata

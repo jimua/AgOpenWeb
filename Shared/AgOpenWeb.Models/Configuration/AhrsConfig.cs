@@ -1,18 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -74,12 +62,7 @@ public class AhrsConfig : ObservableObject
         set => SetProperty(ref _isAutoSteerAuto, value);
     }
 
-    private bool _isReverseOn;
-    public bool IsReverseOn
-    {
-        get => _isReverseOn;
-        set => SetProperty(ref _isReverseOn, value);
-    }
+    // IsReverseOn duplicated Connections.ReverseDetection, never read (#125).
 
     private bool _isDualAsIMU;
     public bool IsDualAsIMU
@@ -88,27 +71,6 @@ public class AhrsConfig : ObservableObject
         set => SetProperty(ref _isDualAsIMU, value);
     }
 
-    private bool _autoSwitchDualFixOn;
-    public bool AutoSwitchDualFixOn
-    {
-        get => _autoSwitchDualFixOn;
-        set => SetProperty(ref _autoSwitchDualFixOn, value);
-    }
-
-    private double _autoSwitchDualFixSpeed;
-    public double AutoSwitchDualFixSpeed
-    {
-        get => _autoSwitchDualFixSpeed;
-        set => SetProperty(ref _autoSwitchDualFixSpeed, value);
-    }
-
-    /// <summary>
-    /// Whether alarms (like RTK lost) should automatically disengage AutoSteer.
-    /// </summary>
-    private bool _alarmStopsAutoSteer = true;
-    public bool AlarmStopsAutoSteer
-    {
-        get => _alarmStopsAutoSteer;
-        set => SetProperty(ref _alarmStopsAutoSteer, value);
-    }
+    // AutoSwitchDualFixOn / AutoSwitchDualFixSpeed / AlarmStopsAutoSteer were duplicates
+    // of Connections.AutoDualFix / DualSwitchSpeed / RtkLostAction, never read (#112).
 }

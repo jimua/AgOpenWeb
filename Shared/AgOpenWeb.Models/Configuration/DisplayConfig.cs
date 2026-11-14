@@ -1,18 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
 using System;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -130,6 +118,14 @@ public class DisplayConfig : ObservableObject
         set => SetProperty(ref _svennArrowVisible, value);
     }
 
+    // The field's aerial imagery on the map (#500); off hides it, the image stays in the field.
+    private bool _imageryVisible = true;
+    public bool ImageryVisible
+    {
+        get => _imageryVisible;
+        set => SetProperty(ref _imageryVisible, value);
+    }
+
     private bool _startFullscreen;
     public bool StartFullscreen
     {
@@ -151,12 +147,10 @@ public class DisplayConfig : ObservableObject
         set => SetProperty(ref _fieldTextureVisible, value);
     }
 
-    private bool _fieldTextureMoveable;
+    private bool _fieldTextureMoveable = true;
     /// <summary>
-    /// When true, the ground texture is rendered as world-tiled bitmaps
-    /// so it visibly scrolls under the tractor as the camera pans. When
-    /// false (default), the texture is rendered as a single stretched
-    /// bitmap centered on the camera — FPS-stable but visually static.
+    /// When true (default, like AgOpenGPS), the ground texture is anchored to the world
+    /// so it scrolls under the tractor. When false it stays fixed to the camera (#110).
     /// </summary>
     public bool FieldTextureMoveable
     {
@@ -171,9 +165,11 @@ public class DisplayConfig : ObservableObject
         set => SetProperty(ref _extraGuidelines, value);
     }
 
-    // Auto-select the nearest track when none is manually chosen (#143). Persisted so the
-    // operator's choice survives restarts.
-    private bool _autoTrack = true;
+    // Auto Track: keep switching to the nearest track while AutoSteer is off. Off by
+    // default, like AgOpenGPS (CTrack.isAutoTrack) — on, it overrides the track the
+    // operator picked a second later. Persisted, unlike AgOpenGPS, so the choice survives
+    // restarts; picking a track by hand turns it off.
+    private bool _autoTrack;
     public bool AutoTrack
     {
         get => _autoTrack;
@@ -185,6 +181,25 @@ public class DisplayConfig : ObservableObject
     {
         get => _extraGuidelinesCount;
         set => SetProperty(ref _extraGuidelinesCount, Math.Clamp(value, 1, 50));
+    }
+
+    /// <summary>Scale of the web client's buttons, bars and dialogs, in percent (the map
+    /// itself is not scaled). One of <see cref="UiScaleSteps"/>.</summary>
+    private int _uiScale = 100;
+    public int UiScale
+    {
+        get => _uiScale;
+        set => SetProperty(ref _uiScale, NearestUiScale(value));
+    }
+
+    public static readonly int[] UiScaleSteps = { 100, 115, 130, 150 };
+
+    private static int NearestUiScale(int value)
+    {
+        int best = UiScaleSteps[0];
+        foreach (int s in UiScaleSteps)
+            if (Math.Abs(s - value) < Math.Abs(best - value)) best = s;
+        return best;
     }
 
     private bool _lineSmoothEnabled = true;
@@ -275,6 +290,16 @@ public class DisplayConfig : ObservableObject
     // and visual quality is close enough to Ultra that it's the right
     // first-launch default for tablets. Users can dial up to Ultra in
     // Display config when running on faster hardware.
+    /// <summary>The name the Display settings show for a resolution multiplier.</summary>
+    public static string QualityLabel(double multiplier) => multiplier switch
+    {
+        < 1.25 => "Ultra",
+        < 2.0 => "High",
+        < 3.25 => "Med",
+        < 5.0 => "Low",
+        _ => "Min",
+    };
+
     private static double GetDefaultResolutionMultiplier() =>
         OperatingSystem.IsAndroid() || OperatingSystem.IsIOS() ? 1.5 : 1.0;
 }

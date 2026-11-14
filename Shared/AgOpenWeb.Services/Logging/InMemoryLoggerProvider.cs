@@ -1,10 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// SPDX-License-Identifier: Apache-2.0
 
 using System;
 using System.Collections.Generic;
@@ -37,7 +33,13 @@ public sealed class LogStore
     private readonly object _lock = new();
     private readonly List<LogEntry> _entries = new(MaxEntries);
 
+    private long _version;
+
     public event Action? LogAdded;
+
+    /// <summary>Lines added (or the log cleared) so far: a cheap "did it change" for a loop,
+    /// without copying the log (#604).</summary>
+    public long Version => System.Threading.Interlocked.Read(ref _version);
 
     public void Add(LogEntry entry)
     {
@@ -46,6 +48,7 @@ public sealed class LogStore
             if (_entries.Count >= MaxEntries)
                 _entries.RemoveAt(0);
             _entries.Add(entry);
+            System.Threading.Interlocked.Increment(ref _version);
         }
         LogAdded?.Invoke();
     }
@@ -59,7 +62,10 @@ public sealed class LogStore
     public void Clear()
     {
         lock (_lock)
+        {
             _entries.Clear();
+            System.Threading.Interlocked.Increment(ref _version);
+        }
         LogAdded?.Invoke();
     }
 }

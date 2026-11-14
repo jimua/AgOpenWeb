@@ -1,18 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
 using System;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -41,22 +29,46 @@ public class GuidanceConfig : ObservableObject
 
     public bool IsStanley => !IsPurePursuit;
 
+    /// <summary>
+    /// Reset the steering-tuning values the AutoSteer panel edits (algorithm, look-ahead,
+    /// integral, Stanley gains, U-turn compensation) to the new-profile defaults
+    /// (VehicleProfileService). The AutoSteer panel's "Reset to defaults" calls this
+    /// alongside AutoSteerConfig.ResetToDefaults (#99).
+    /// </summary>
+    public void ResetSteeringTuning()
+    {
+        IsPurePursuit = true;
+        GoalPointLookAheadHold = 3.0;
+        GoalPointLookAheadMult = 1.5;
+        PurePursuitIntegralGain = 0.0;
+        StanleyDistanceErrorGain = 1.0;
+        StanleyHeadingErrorGain = 1.0;
+        UTurnCompensation = 1.0;
+    }
+
+    /// <summary>
+    /// U-turn compensation as the AutoSteer panel shows it: percent change from 1.0
+    /// (AgOpenGPS FormSteer shows the same multiplier as ×10 − 10).
+    /// </summary>
+    public static double UTurnCompensationToPercent(double multiplier) => (multiplier - 1.0) * 100.0;
+    public static double UTurnCompensationFromPercent(double percent) => 1.0 + percent / 100.0;
+
     // Look-ahead parameters (both algorithms)
-    private double _goalPointLookAheadHold = 4.0;
+    private double _goalPointLookAheadHold = 3.0; // AgOpenGPS setVehicle_goalPointLookAheadHold
     public double GoalPointLookAheadHold
     {
         get => _goalPointLookAheadHold;
         set => SetProperty(ref _goalPointLookAheadHold, value);
     }
 
-    private double _goalPointLookAheadMult = 1.4;
+    private double _goalPointLookAheadMult = 1.5; // AgOpenGPS setVehicle_goalPointLookAheadMult
     public double GoalPointLookAheadMult
     {
         get => _goalPointLookAheadMult;
         set => SetProperty(ref _goalPointLookAheadMult, value);
     }
 
-    private double _goalPointAcquireFactor = 1.5;
+    private double _goalPointAcquireFactor = 0.9; // AgOpenGPS setVehicle_goalPointAcquireFactor (#110)
     public double GoalPointAcquireFactor
     {
         get => _goalPointAcquireFactor;
@@ -79,7 +91,7 @@ public class GuidanceConfig : ObservableObject
     }
 
     // Stanley specific
-    private double _stanleyDistanceErrorGain = 0.8;
+    private double _stanleyDistanceErrorGain = 1.0; // AgOpenGPS stanleyDistanceErrorGain
     public double StanleyDistanceErrorGain
     {
         get => _stanleyDistanceErrorGain;
@@ -107,21 +119,6 @@ public class GuidanceConfig : ObservableObject
         set => SetProperty(ref _stanleyIntegralDistanceAwayTriggerAB, value);
     }
 
-    // Dead zone
-    private double _deadZoneHeading = 0.5;
-    public double DeadZoneHeading
-    {
-        get => _deadZoneHeading;
-        set => SetProperty(ref _deadZoneHeading, value);
-    }
-
-    private int _deadZoneDelay = 10;
-    public int DeadZoneDelay
-    {
-        get => _deadZoneDelay;
-        set => SetProperty(ref _deadZoneDelay, value);
-    }
-
     // U-Turn settings (merged from YouTurnConfiguration)
     private double _uTurnRadius = 8.0;
     public double UTurnRadius
@@ -142,13 +139,6 @@ public class GuidanceConfig : ObservableObject
     {
         get => _uTurnDistanceFromBoundary;
         set => SetProperty(ref _uTurnDistanceFromBoundary, value);
-    }
-
-    private int _uTurnSkipWidth = 1;
-    public int UTurnSkipWidth
-    {
-        get => _uTurnSkipWidth;
-        set => SetProperty(ref _uTurnSkipWidth, Math.Max(1, value));
     }
 
     // Sagitta (offset-semicircle) by default — matches Twol, which dropped Dubins
@@ -197,20 +187,5 @@ public class GuidanceConfig : ObservableObject
     {
         get => _tramLine;
         set => SetProperty(ref _tramLine, Math.Max(1, value));
-    }
-
-    // Hydraulic lift look-ahead distances
-    private double _hydLiftLookAheadDistanceLeft = 1.0;
-    public double HydLiftLookAheadDistanceLeft
-    {
-        get => _hydLiftLookAheadDistanceLeft;
-        set => SetProperty(ref _hydLiftLookAheadDistanceLeft, value);
-    }
-
-    private double _hydLiftLookAheadDistanceRight = 1.0;
-    public double HydLiftLookAheadDistanceRight
-    {
-        get => _hydLiftLookAheadDistanceRight;
-        set => SetProperty(ref _hydLiftLookAheadDistanceRight, value);
     }
 }

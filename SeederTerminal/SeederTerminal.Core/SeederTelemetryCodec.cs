@@ -12,7 +12,7 @@ public readonly record struct SeederTelemetryPayload(
 
 public static class SeederTelemetryCodec
 {
-    public const byte MessageType = 22;
+    public const byte MessageType = AgOpenWeb.RemoteServer.WireCodec.SeederTelemetry;
 
     public static byte[] Encode(ISeederTelemetrySource source)
     {

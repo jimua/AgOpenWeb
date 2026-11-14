@@ -1,7 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2026 AgOpenWeb Contributors
-//
-// Licensed under GNU GPL v3. See LICENSE.md.
+// SPDX-License-Identifier: Apache-2.0
 
 using System;
 using System.IO;
@@ -9,16 +8,14 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using AgOpenWeb.Models;
 using AgOpenWeb.Models.Configuration;
-using AgOpenWeb.Models.State;
 using AgOpenWeb.Services.Storage;
 
 namespace AgOpenWeb.Services.Profile;
 
 /// <summary>
-/// v2 vehicle profile serializer. Persists Vehicle config + Guidance +
-/// YouTurn + General. Tool config + Sections live in the parallel
-/// <see cref="ToolProfileJsonService"/> per the AgOpenGPS 6.8.2-style
-/// vehicle/tool split (#346).
+/// v2 vehicle profile serializer. Persists Vehicle config + Guidance + GPS +
+/// roll. Tool config, Sections, Machine, U-Turn and Tram live in the parallel
+/// <see cref="ToolProfileJsonService"/> (#346, #330).
 /// </summary>
 public static class VehicleProfileJsonService
 {
@@ -109,6 +106,9 @@ public static class VehicleProfileJsonService
             AntennaHeight = store.Vehicle.AntennaHeight,
             AntennaPivot = store.Vehicle.AntennaPivot,
             AntennaOffset = store.Vehicle.AntennaOffset,
+            ImuPivot = store.Vehicle.ImuPivot,
+            ImuHeight = store.Vehicle.ImuHeight,
+            ImuOffset = store.Vehicle.ImuOffset,
             Wheelbase = store.Vehicle.Wheelbase,
             TrackWidth = store.Vehicle.TrackWidth,
             Type = (int)store.Vehicle.Type,
@@ -130,22 +130,26 @@ public static class VehicleProfileJsonService
             UTurnCompensation = store.Guidance.UTurnCompensation,
             MinLookAheadDistance = store.Guidance.MinLookAheadDistance,
             StanleyIntegralDistanceAwayTriggerAB = store.Guidance.StanleyIntegralDistanceAwayTriggerAB,
-            DeadZoneHeading = store.Guidance.DeadZoneHeading,
-            DeadZoneDelay = store.Guidance.DeadZoneDelay,
-            TramPasses = store.Guidance.TramPasses,
-            TramDisplay = store.Guidance.TramDisplay,
-            TramLine = store.Guidance.TramLine,
-            HydLiftLookAheadDistanceLeft = store.Guidance.HydLiftLookAheadDistanceLeft,
-            HydLiftLookAheadDistanceRight = store.Guidance.HydLiftLookAheadDistanceRight,
         },
-        YouTurn = new YouTurnDto
+        Gps = new GpsDto
         {
-            TurnRadius = store.Guidance.UTurnRadius,
-            ExtensionLength = store.Guidance.UTurnExtension,
-            DistanceFromBoundary = store.Guidance.UTurnDistanceFromBoundary,
-            SkipWidth = store.Guidance.UTurnSkipWidth,
-            Style = store.Guidance.UTurnStyle,
-            Smoothing = store.Guidance.UTurnSmoothing,
+            IsDualGps = store.Connections.IsDualGps,
+            DualHeadingOffset = store.Connections.DualHeadingOffset,
+            DualReverseDistance = store.Connections.DualReverseDistance,
+            AutoDualFix = store.Connections.AutoDualFix,
+            DualSwitchSpeed = store.Connections.DualSwitchSpeed,
+            MinGpsStep = store.Connections.MinGpsStep,
+            FixToFixDistance = store.Connections.FixToFixDistance,
+            HeadingFusionWeight = store.Connections.HeadingFusionWeight,
+            ReverseDetection = store.Connections.ReverseDetection,
+            RtkLostAlarm = store.Connections.RtkLostAlarm,
+            RtkLostAction = store.Connections.RtkLostAction,
+        },
+        Ahrs = new AhrsDto
+        {
+            RollZero = store.Ahrs.RollZero,
+            RollFilter = store.Ahrs.RollFilter,
+            IsRollInvert = store.Ahrs.IsRollInvert,
         },
         General = new GeneralDto
         {
@@ -153,11 +157,6 @@ public static class VehicleProfileJsonService
             // in AppSettings now. Kept as a nullable field on the DTO so
             // pre-migration profiles still parse; new writes elide it.
             IsMetric = null,
-            IsSimulatorOn = store.Simulator.Enabled,
-            // Sim position is device STATE (PersistentAppState); these DTO
-            // fields are vestigial but kept populated for back-compat.
-            SimLatitude = PersistentAppState.Instance.SimulatorLatitude,
-            SimLongitude = PersistentAppState.Instance.SimulatorLongitude,
         },
     };
 
@@ -170,6 +169,9 @@ public static class VehicleProfileJsonService
         store.Vehicle.AntennaHeight = dto.Vehicle?.AntennaHeight ?? 3.0;
         store.Vehicle.AntennaPivot = dto.Vehicle?.AntennaPivot ?? 0.0;
         store.Vehicle.AntennaOffset = dto.Vehicle?.AntennaOffset ?? 0.0;
+        store.Vehicle.ImuPivot = dto.Vehicle?.ImuPivot ?? 0.0;
+        store.Vehicle.ImuHeight = dto.Vehicle?.ImuHeight ?? 0.0;
+        store.Vehicle.ImuOffset = dto.Vehicle?.ImuOffset ?? 0.0;
         store.Vehicle.Wheelbase = dto.Vehicle?.Wheelbase ?? 2.5;
         store.Vehicle.TrackWidth = dto.Vehicle?.TrackWidth ?? 1.8;
         store.Vehicle.Type = (VehicleType)(dto.Vehicle?.Type ?? 0);
@@ -184,7 +186,7 @@ public static class VehicleProfileJsonService
         store.Guidance.IsPurePursuit = dto.Guidance?.IsPurePursuit ?? true;
         store.Guidance.GoalPointLookAheadHold = dto.Guidance?.GoalPointLookAheadHold ?? 4.0;
         store.Guidance.GoalPointLookAheadMult = dto.Guidance?.GoalPointLookAheadMult ?? 1.4;
-        store.Guidance.GoalPointAcquireFactor = dto.Guidance?.GoalPointAcquireFactor ?? 1.5;
+        store.Guidance.GoalPointAcquireFactor = dto.Guidance?.GoalPointAcquireFactor ?? 0.9;
         store.Guidance.StanleyDistanceErrorGain = dto.Guidance?.StanleyDistanceErrorGain ?? 0.8;
         store.Guidance.StanleyHeadingErrorGain = dto.Guidance?.StanleyHeadingErrorGain ?? 1.0;
         store.Guidance.StanleyIntegralGainAB = dto.Guidance?.StanleyIntegralGainAB ?? 0.0;
@@ -192,21 +194,29 @@ public static class VehicleProfileJsonService
         store.Guidance.UTurnCompensation = dto.Guidance?.UTurnCompensation ?? 1.0;
         store.Guidance.MinLookAheadDistance = dto.Guidance?.MinLookAheadDistance ?? 2.0;
         store.Guidance.StanleyIntegralDistanceAwayTriggerAB = dto.Guidance?.StanleyIntegralDistanceAwayTriggerAB ?? 0.3;
-        store.Guidance.DeadZoneHeading = dto.Guidance?.DeadZoneHeading ?? 0.5;
-        store.Guidance.DeadZoneDelay = dto.Guidance?.DeadZoneDelay ?? 10;
-        store.Guidance.TramPasses = dto.Guidance?.TramPasses ?? 3;
-        store.Guidance.TramDisplay = dto.Guidance?.TramDisplay ?? true;
-        store.Guidance.TramLine = dto.Guidance?.TramLine ?? 1;
-        store.Guidance.HydLiftLookAheadDistanceLeft = dto.Guidance?.HydLiftLookAheadDistanceLeft ?? 1.0;
-        store.Guidance.HydLiftLookAheadDistanceRight = dto.Guidance?.HydLiftLookAheadDistanceRight ?? 1.0;
 
-        // YouTurn (mirrored onto Guidance.UTurn* fields per current store layout)
-        store.Guidance.UTurnRadius = dto.YouTurn?.TurnRadius ?? 8.0;
-        store.Guidance.UTurnExtension = dto.YouTurn?.ExtensionLength ?? 20.0;
-        store.Guidance.UTurnDistanceFromBoundary = dto.YouTurn?.DistanceFromBoundary ?? 2.0;
-        store.Guidance.UTurnSkipWidth = dto.YouTurn?.SkipWidth ?? 1;
-        store.Guidance.UTurnStyle = dto.YouTurn?.Style ?? (int)Models.YouTurn.YouTurnType.SagittaStyle;
-        store.Guidance.UTurnSmoothing = dto.YouTurn?.Smoothing ?? 14;
+        // GPS / heading (AgOpenGPS keeps these per vehicle). Missing in profiles saved
+        // before #112, when they weren't saved at all → defaults.
+        var gps = dto.Gps;
+        var dc = new ConnectionConfig();
+        store.Connections.IsDualGps = gps?.IsDualGps ?? dc.IsDualGps;
+        store.Connections.DualHeadingOffset = gps?.DualHeadingOffset ?? dc.DualHeadingOffset;
+        store.Connections.DualReverseDistance = gps?.DualReverseDistance ?? dc.DualReverseDistance;
+        store.Connections.AutoDualFix = gps?.AutoDualFix ?? dc.AutoDualFix;
+        store.Connections.DualSwitchSpeed = gps?.DualSwitchSpeed ?? dc.DualSwitchSpeed;
+        store.Connections.MinGpsStep = gps?.MinGpsStep ?? dc.MinGpsStep;
+        store.Connections.FixToFixDistance = gps?.FixToFixDistance ?? dc.FixToFixDistance;
+        store.Connections.HeadingFusionWeight = gps?.HeadingFusionWeight ?? dc.HeadingFusionWeight;
+        store.Connections.ReverseDetection = gps?.ReverseDetection ?? dc.ReverseDetection;
+        store.Connections.RtkLostAlarm = gps?.RtkLostAlarm ?? dc.RtkLostAlarm;
+        store.Connections.RtkLostAction = gps?.RtkLostAction ?? dc.RtkLostAction;
+
+        // AHRS / Roll calibration (persisted with vehicle profile)
+        var ahrs = dto.Ahrs;
+        var da = new AhrsConfig();
+        store.Ahrs.RollZero = ahrs?.RollZero ?? da.RollZero;
+        store.Ahrs.RollFilter = ahrs?.RollFilter ?? da.RollFilter;
+        store.Ahrs.IsRollInvert = ahrs?.IsRollInvert ?? da.IsRollInvert;
 
         // General — IsMetric used to live here; it now lives in AppSettings.
         // Apply only if the legacy field is present in the file;
@@ -228,7 +238,8 @@ public static class VehicleProfileJsonService
         public int FormatVersion { get; set; }
         public VehicleDto? Vehicle { get; set; }
         public GuidanceDto? Guidance { get; set; }
-        public YouTurnDto? YouTurn { get; set; }
+        public GpsDto? Gps { get; set; }
+        public AhrsDto? Ahrs { get; set; }
         public GeneralDto? General { get; set; }
     }
 
@@ -237,6 +248,9 @@ public static class VehicleProfileJsonService
         public double AntennaHeight { get; set; }
         public double AntennaPivot { get; set; }
         public double AntennaOffset { get; set; }
+        public double ImuPivot { get; set; }
+        public double ImuHeight { get; set; }
+        public double ImuOffset { get; set; }
         public double Wheelbase { get; set; }
         public double TrackWidth { get; set; }
         public int Type { get; set; }
@@ -261,23 +275,28 @@ public static class VehicleProfileJsonService
         public double UTurnCompensation { get; set; }
         public double? MinLookAheadDistance { get; set; }
         public double? StanleyIntegralDistanceAwayTriggerAB { get; set; }
-        public double? DeadZoneHeading { get; set; }
-        public int? DeadZoneDelay { get; set; }
-        public int? TramPasses { get; set; }
-        public bool? TramDisplay { get; set; }
-        public int? TramLine { get; set; }
-        public double? HydLiftLookAheadDistanceLeft { get; set; }
-        public double? HydLiftLookAheadDistanceRight { get; set; }
     }
 
-    internal class YouTurnDto
+    internal class GpsDto
     {
-        public double TurnRadius { get; set; }
-        public double ExtensionLength { get; set; }
-        public double DistanceFromBoundary { get; set; }
-        public int SkipWidth { get; set; }
-        public int Style { get; set; }
-        public int Smoothing { get; set; }
+        public bool? IsDualGps { get; set; }
+        public double? DualHeadingOffset { get; set; }
+        public double? DualReverseDistance { get; set; }
+        public bool? AutoDualFix { get; set; }
+        public double? DualSwitchSpeed { get; set; }   // km/h
+        public double? MinGpsStep { get; set; }        // m
+        public double? FixToFixDistance { get; set; }  // m
+        public double? HeadingFusionWeight { get; set; } // GPS share 0–1
+        public bool? ReverseDetection { get; set; }
+        public bool? RtkLostAlarm { get; set; }
+        public int? RtkLostAction { get; set; }
+    }
+
+    internal class AhrsDto
+    {
+        public double? RollZero { get; set; }
+        public double? RollFilter { get; set; }
+        public bool? IsRollInvert { get; set; }
     }
 
     internal class GeneralDto
@@ -290,8 +309,5 @@ public static class VehicleProfileJsonService
         /// <see cref="IConfigurationService.ReconcileIsMetricAfterProfileLoad"/>.
         /// </summary>
         public bool? IsMetric { get; set; }
-        public bool IsSimulatorOn { get; set; }
-        public double SimLatitude { get; set; }
-        public double SimLongitude { get; set; }
     }
 }

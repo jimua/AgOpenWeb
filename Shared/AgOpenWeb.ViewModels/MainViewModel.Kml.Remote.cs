@@ -1,6 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-// Licensed under GNU GPL v3. See LICENSE.md.
+// SPDX-License-Identifier: Apache-2.0
 
 using System.Linq;
 using AgOpenWeb.Models;
@@ -23,7 +23,7 @@ public partial class MainViewModel
     {
         if (!IsFieldOpen || string.IsNullOrEmpty(CurrentFieldName))
         {
-            StatusMessage = "Open a field first before importing a boundary";
+            ReportFailure("Open a field first before importing a boundary");
             return;
         }
 
@@ -45,10 +45,11 @@ public partial class MainViewModel
         SelectedKmlFile = item;
         if (_kmlParsedPolygons.Count == 0)
         {
-            StatusMessage = "No boundary polygons found in KML";
+            ReportFailure("No boundary polygons found in KML");
             return;
         }
 
         ImportKmlToExistingField();
+        _kmlImportToExistingField = false; // one-shot (#111)
     }
 }

@@ -1,18 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
 using System;
 using System.Threading.Tasks;
@@ -111,12 +99,15 @@ public class SteeringGainsStepViewModel : WizardStepViewModel
 
     protected override void OnEntering()
     {
+        // Algorithm / look-ahead / integral / Stanley gain are the guidance values the
+        // pipeline steers with (GuidanceConfig, #99); P gain + side-hill are module settings.
         var autoSteer = _configService.Store.AutoSteer;
-        IsStanleyMode = autoSteer.IsStanleyMode;
-        SteerResponseHold = autoSteer.SteerResponseHold;
-        StanleyAggressiveness = autoSteer.StanleyAggressiveness;
+        var guidance = _configService.Store.Guidance;
+        IsStanleyMode = guidance.IsStanley;
+        SteerResponseHold = guidance.GoalPointLookAheadHold;
+        StanleyAggressiveness = guidance.StanleyDistanceErrorGain;
         ProportionalGain = autoSteer.ProportionalGain;
-        IntegralGain = autoSteer.IntegralGain;
+        IntegralGain = guidance.PurePursuitIntegralGain;
         SideHillCompensation = autoSteer.SideHillCompensation;
 
         if (_autoSteerService != null)
@@ -129,12 +120,13 @@ public class SteeringGainsStepViewModel : WizardStepViewModel
             _autoSteerService.StateUpdated -= OnAutoSteerStateUpdated;
 
         var autoSteer = _configService.Store.AutoSteer;
-        autoSteer.IsStanleyMode = IsStanleyMode;
-        autoSteer.SteerResponseHold = SteerResponseHold;
-        autoSteer.StanleyAggressiveness = StanleyAggressiveness;
-        autoSteer.ProportionalGain = ProportionalGain;
-        autoSteer.IntegralGain = IntegralGain;
-        autoSteer.SideHillCompensation = SideHillCompensation;
+        var guidance = _configService.Store.Guidance;
+        if (Touched(nameof(IsStanleyMode))) guidance.IsPurePursuit = !IsStanleyMode;
+        if (Touched(nameof(SteerResponseHold))) guidance.GoalPointLookAheadHold = SteerResponseHold;
+        if (Touched(nameof(StanleyAggressiveness))) guidance.StanleyDistanceErrorGain = StanleyAggressiveness;
+        if (Touched(nameof(ProportionalGain))) autoSteer.ProportionalGain = ProportionalGain;
+        if (Touched(nameof(IntegralGain))) guidance.PurePursuitIntegralGain = IntegralGain;
+        if (Touched(nameof(SideHillCompensation))) autoSteer.SideHillCompensation = SideHillCompensation;
     }
 
     private void OnAutoSteerStateUpdated(object? sender, VehicleStateSnapshot snapshot)
@@ -144,11 +136,22 @@ public class SteeringGainsStepViewModel : WizardStepViewModel
         LiveSteerError = Math.Round(Math.Abs(snapshot.SteerAngle - actual), 1);
     }
 
+    protected override void ReloadFromStore()
+    {
+        var autoSteer = _configService.Store.AutoSteer;
+        var guidance = _configService.Store.Guidance;
+        if (!Touched(nameof(SteerResponseHold))) SteerResponseHold = guidance.GoalPointLookAheadHold;
+        if (!Touched(nameof(StanleyAggressiveness))) StanleyAggressiveness = guidance.StanleyDistanceErrorGain;
+        if (!Touched(nameof(ProportionalGain))) ProportionalGain = autoSteer.ProportionalGain;
+        if (!Touched(nameof(IntegralGain))) IntegralGain = guidance.PurePursuitIntegralGain;
+        if (!Touched(nameof(SideHillCompensation))) SideHillCompensation = autoSteer.SideHillCompensation;
+    }
+
     public override Task<bool> ValidateAsync()
     {
-        if (ProportionalGain < 1 || ProportionalGain > 100)
+        if (ProportionalGain < 1 || ProportionalGain > 200)
         {
-            SetValidationError("Proportional Gain must be between 1 and 100");
+            SetValidationError("Proportional Gain must be between 1 and 200");
             return Task.FromResult(false);
         }
 

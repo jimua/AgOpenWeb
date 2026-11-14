@@ -1,18 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
@@ -100,6 +88,20 @@ public static class FieldPropertyKeys
     public const string AreaHectares = "areaHectares";
     public const string CreatedDate = "createdDate";
     public const string LastModifiedDate = "lastModifiedDate";
+    public const string Color = "color";
+    public const string Id = "id";
+    public const string Notes = "notes";
+    public const string MoveDistance = "moveDistance";
+    public const string Mode = "mode";
+    public const string APointIndex = "aPointIndex";
+    public const string Image = "image";
+    public const string MercatorMinX = "mercatorMinX";
+    public const string MercatorMaxX = "mercatorMaxX";
+    public const string MercatorMinY = "mercatorMinY";
+    public const string MercatorMaxY = "mercatorMaxY";
+    public const string Current = "current";
+    public const string Speeds = "speeds";
+    public const string AutoSteer = "autoSteer";
 }
 
 /// <summary>
@@ -113,4 +115,8 @@ public static class FeatureRoles
     public const string Headland = "headland";
     public const string Track = "track";
     public const string BackgroundImage = "background-image";
+    public const string Flag = "flag";
+    public const string HeadlandLine = "headland-line";
+    public const string Contour = "contour";
+    public const string RecordedPath = "recorded-path";
 }

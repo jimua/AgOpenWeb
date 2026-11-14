@@ -1,18 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2025 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
 using AgOpenWeb.Models.Base;
 using AgOpenWeb.Models.Guidance;
@@ -69,6 +57,7 @@ namespace AgOpenWeb.Services.YouTurn
         private int semiCircleIndex = -1;
         private bool isOutOfBounds = false;
         private bool isOutSameCurve = false;
+        private Vec3? arcStart;
         private int youTurnPhase = 0;
 
         /// <summary>
@@ -98,19 +87,19 @@ namespace AgOpenWeb.Services.YouTurn
             youTurnPhase = 0;
             isOutOfBounds = false;
             isOutSameCurve = false;
+            arcStart = null;
 
-            // Lateral span of the arc = the pass spacing. NO ToolOffset compensation:
-            // AgOpenGPS shifts the arc by ±2*ToolOffset because its steering applies the
-            // implement offset to the pivot target, so the arc must pre-compensate. AgOpenWeb
-            // steering never applies ToolOffset (it only positions sections in
-            // SectionControlService) — the guidance line IS the pivot path — so adding the
-            // shift here lands the arc end (and exit leg) 2*ToolOffset off the cyan/post-turn
-            // line the pivot actually follows, causing a lateral jump + wiggle on turn exit.
+            // Lateral span of the arc = from the line steered now to the next one. Steering
+            // puts the tool, not the tractor, on the pass (#446), as AgOpenGPS does, so with a
+            // tool offset that is the pass spacing ± 2*ToolOffset: TurnOffset carries it.
             double turnOffset;
-            if (input.TurnOffset > 0)
+            // TurnOffset is signed (AgOpenGPS turnOffset): negative when the tractor's next line
+            // lies against the turn direction, a tool offset over half the pass spacing; the arc
+            // then goes round the other way (ArcTurnLeft) and its width is the size.
+            if (input.TurnOffset != 0)
             {
                 // Use the pre-calculated offset (matches cyan next-track line exactly)
-                turnOffset = input.TurnOffset;
+                turnOffset = Math.Abs(input.TurnOffset);
                 _logger.LogDebug("Using pre-calculated TurnOffset: {TurnOffset}m", turnOffset);
             }
             else
@@ -136,6 +125,7 @@ namespace AgOpenWeb.Services.YouTurn
                 output.DistancePivotToTurnLine = Distance(ytList[0], input.PivotPosition);
                 output.InClosestTurnPoint = inClosestTurnPt.ClosePt;
                 output.OutClosestTurnPoint = outClosestTurnPt.ClosePt;
+                output.ArcStart = arcStart;
             }
             else
             {
@@ -162,7 +152,7 @@ namespace AgOpenWeb.Services.YouTurn
             // Dubins omega (CreateCurveOmegaTurn) for the straight-connector case.
             // Dubins is kept ONLY as that internal wide-turn fallback — it is no longer
             // a selectable style, because its shortest-path solution loops on close rows.
-            return CreateCurveSagittaTurn(input, turnOffset);
+            return CreateCurveSagittaTurn(input, turnOffset, keyhole: input.TurnType == YouTurnType.KeyholeStyle);
         }
 
         private bool CreateCurveOmegaTurn(YouTurnCreationInput input, double turnOffset)
@@ -226,7 +216,7 @@ namespace AgOpenWeb.Services.YouTurn
                         Vec3 goal = new Vec3();
 
                         // Neat trick to not have to add pi/2
-                        if (input.IsTurnLeft)
+                        if (input.ArcTurnLeft)
                         {
                             goal.Easting = input.GuidancePoints[curveIndex - count].Easting + (Math.Cos(-invertHead) * turnOffset);
                             goal.Northing = input.GuidancePoints[curveIndex - count].Northing + (Math.Sin(-invertHead) * turnOffset);
@@ -333,27 +323,13 @@ namespace AgOpenWeb.Services.YouTurn
                 inClosestTurnPt.CurveIndex = bestIdx;
             }
 
-            // Build the destination curve (the cyan next-track line) the exit leg follows.
-            // Offset the BASE reference by the SAME formula every other consumer uses for a
-            // pass — current pass, displayed line, STEERING line
-            // (GpsPipelineService.CalculateTrackGuidance) and the pass driven after the turn:
-            //   widthMinusOverlap * pathsAway + nudge.
-            // One definition, no per-turn measurement, so the exit leg is byte-aligned with
-            // the cyan line and the line the tractor actually steers after completion.
-            //
-            // (Previously this measured SignedPerpDistanceToCurve(base, arcEnd) to be
-            // "heading-agnostic". But that projects the arc end onto the NEAREST raw base
-            // point's stored heading; when the recorded curve ends before the headland the arc
-            // seats on the tangent extension and a noisy end-point heading skewed the measured
-            // offset by metres, plotting the exit leg off the next pass the tractor drives.)
-            double widthMinusOverlap = input.ToolWidth - input.ToolOverlap;
-            int passDelta = (input.IsTurnLeft ^ input.IsHeadingSameWay)
-                ? (input.RowSkipsWidth + 1)
-                : -(input.RowSkipsWidth + 1);
-            double distAway = widthMinusOverlap * (input.HowManyPathsAway + passDelta) + input.NudgeDistance;
-
-            // Create the next line
-            nextCurve = BuildNewOffsetCurveList(input, distAway);
+            // Build the destination curve (the cyan next-track line) the exit leg follows, by
+            // the one pass formula (NextPassDistAway). No per-turn measurement: measuring
+            // SignedPerpDistanceToCurve(base, arcEnd) projected the arc end onto the nearest raw
+            // base point's stored heading, and when the recorded curve ended before the headland
+            // the arc seated on the tangent extension and a noisy end-point heading skewed the
+            // offset by metres, plotting the exit leg off the next pass the tractor drives.
+            nextCurve = BuildNewOffsetCurveList(input, NextPassDistAway(input));
 
             // Get the index of the last yt point
             double dis = double.MaxValue;
@@ -441,7 +417,8 @@ namespace AgOpenWeb.Services.YouTurn
         /// (<see cref="GetOffsetSemicirclePoints"/>) so the path meets the row
         /// tangentially instead of stepping curvature from 0 to 1/R.
         /// </summary>
-        private bool CreateCurveSagittaTurn(YouTurnCreationInput input, double turnOffset)
+        // keyhole: the counter-arc mirrored at the end too (YouTurnType.KeyholeStyle).
+        private bool CreateCurveSagittaTurn(YouTurnCreationInput input, double turnOffset, bool keyhole = false)
         {
             // Keep from making turns constantly - wait 1.5 seconds
             if (input.MakeUTurnCounter < 4)
@@ -457,11 +434,12 @@ namespace AgOpenWeb.Services.YouTurn
                 return false;
             }
 
-            // A single sagitta semicircle of radius R reaches at most 2R sideways.
-            // Wider rows need straight connectors, so fall back to the omega turn.
+            // A single sagitta semicircle of radius R reaches at most 2R sideways. Wider rows
+            // get AgOpenGPS's wide turn, which follows the turn line between the passes; the
+            // omega turn (one shape, square to the track) is the fallback (#544).
             if (Math.Abs(turnOffset) > input.TurnRadius * 2.0)
             {
-                return CreateCurveOmegaTurn(input, turnOffset);
+                return CreateWideOrOmegaTurn(input, turnOffset);
             }
 
             // Find the crossing point
@@ -480,7 +458,7 @@ namespace AgOpenWeb.Services.YouTurn
             // Pull the arc back from a full 2R semicircle so it lands exactly on the
             // next row: landing lateral = 2R - pullback, hence pullback = 2R - turnOffset.
             double sagittaPullback = input.TurnRadius * 2.0 - Math.Abs(turnOffset);
-            bool isTurningRight = !input.IsTurnLeft;
+            bool isTurningRight = !input.ArcTurnLeft;
 
             isOutOfBounds = true;
             int stopIfWayOut = 0;
@@ -506,7 +484,9 @@ namespace AgOpenWeb.Services.YouTurn
                 if (currentPos.Heading >= TWO_PI) currentPos.Heading -= TWO_PI;
                 head = currentPos.Heading;
 
-                ytList = SagittaTurnGeometry.BuildOffsetArc(currentPos, head, isTurningRight, input.TurnRadius, sagittaPullback, Math.PI);
+                ytList = keyhole
+                    ? SagittaTurnGeometry.BuildKeyhole(currentPos, head, isTurningRight, input.TurnRadius, Math.Abs(turnOffset))
+                    : SagittaTurnGeometry.BuildOffsetArc(currentPos, head, isTurningRight, input.TurnRadius, sagittaPullback, Math.PI);
                 if (ytList.Count == 0)
                 {
                     FailCreate();
@@ -546,6 +526,37 @@ namespace AgOpenWeb.Services.YouTurn
 
             // Add the curve-following entry/exit legs (single-call: see CompleteCurveTurn).
             return CompleteCurveTurn(input);
+        }
+
+        /// <summary>
+        /// Rows wider than twice the turn radius (#544): AgOpenGPS's wide turn, built in its
+        /// three phases here in one call (<see cref="CreateTurn"/> starts every plan at phase 0),
+        /// and the omega turn when the wide one can't be built (a corner, a boundary the arcs
+        /// don't fit in). The wide turn is a quarter circle out of the current pass, tangent to
+        /// the turn line, the turn line itself, and a quarter circle into the next pass, so the
+        /// distance from the boundary holds along the whole turn whatever the headland's angle;
+        /// the omega is one shape square to the track, pushed out until it touches the turn
+        /// line at one point, which on an angled headland starts too late on one side and too
+        /// early on the other.
+        /// </summary>
+        private bool CreateWideOrOmegaTurn(YouTurnCreationInput input, double turnOffset)
+        {
+            youTurnPhase = 0;
+            for (int phase = 0; phase < 3 && youTurnPhase == phase; phase++)
+            {
+                if (!CreateCurveWideTurn(input, turnOffset)) break;
+            }
+            if (youTurnPhase == 10 && ytList.Count > 0) return true;
+
+            _logger.LogDebug("[YouTurn] Wide turn not built (phase {Phase}); the omega turn instead", youTurnPhase);
+            ytList.Clear();
+            ytList2.Clear();
+            nextCurve.Clear();
+            youTurnPhase = 0;
+            isOutOfBounds = false;
+            isOutSameCurve = false;
+            arcStart = null;
+            return CreateCurveOmegaTurn(input, turnOffset);
         }
 
         private bool CreateCurveWideTurn(YouTurnCreationInput input, double turnOffset)
@@ -610,7 +621,7 @@ namespace AgOpenWeb.Services.YouTurn
                             currentPos.Northing += pointSpacing * Math.Cos(currentPos.Heading);
 
                             // Which way are we turning?
-                            double turnParameter = input.IsTurnLeft ? -1.0 : 1.0;
+                            double turnParameter = input.ArcTurnLeft ? -1.0 : 1.0;
 
                             // Update the heading
                             currentPos.Heading += (pointSpacing / input.TurnRadius) * turnParameter;
@@ -672,13 +683,9 @@ namespace AgOpenWeb.Services.YouTurn
                     return false;
 
                 case 1:
-                    // Build the next line
-                    double widthMinusOverlap = input.ToolWidth - input.ToolOverlap;
-                    double distAway = widthMinusOverlap * (input.HowManyPathsAway + ((input.IsTurnLeft ^ input.IsHeadingSameWay) ? input.RowSkipsWidth : -input.RowSkipsWidth))
-                        + (input.IsHeadingSameWay ? input.ToolOffset : -input.ToolOffset) + input.NudgeDistance;
-                    distAway += (0.5 * widthMinusOverlap);
-
-                    nextCurve = BuildNewOffsetCurveList(input, distAway);
+                    // Build the next line: the pass the turn lands on, by the one formula every
+                    // pass uses (the same as the omega's CompleteCurveTurn).
+                    nextCurve = BuildNewOffsetCurveList(input, NextPassDistAway(input));
 
                     // Going with or against boundary?
                     bool isTurnLineSameWay = true;
@@ -711,7 +718,7 @@ namespace AgOpenWeb.Services.YouTurn
                         {
                             currentPos.Easting += pointSpacing * Math.Sin(currentPos.Heading);
                             currentPos.Northing += pointSpacing * Math.Cos(currentPos.Heading);
-                            double turnParameter = input.IsTurnLeft ? 1.0 : -1.0;
+                            double turnParameter = input.ArcTurnLeft ? 1.0 : -1.0;
                             currentPos.Heading += (pointSpacing / input.TurnRadius) * turnParameter;
                             ytList2.Add(currentPos);
                         }
@@ -831,6 +838,19 @@ namespace AgOpenWeb.Services.YouTurn
                         }
                     }
 
+                    // Too late to turn? The tractor within a few metres of where the pass crosses
+                    // the turn line has reached the headland (as CompleteCurveTurn; the legs added
+                    // next reach back towards it, so the path's first point is no measure).
+                    if (Distance(startOfTurnPt.ClosePt, input.PivotPosition) < 3)
+                    {
+                        FailCreate();
+                        return false;
+                    }
+
+                    // The legs start where the arcs really are: the crossing indexes were walked
+                    // inward until the arcs fit and the arcs then moved back out to the turn line.
+                    inClosestTurnPt.CurveIndex = NearestIndex(input.GuidancePoints, ytList[0]);
+                    outClosestTurnPt.CurveIndex = NearestIndex(nextCurve, ytList[ytList.Count - 1]);
                     if (!AddCurveSequenceLines(input)) return false;
 
                     double distance;
@@ -865,12 +885,6 @@ namespace AgOpenWeb.Services.YouTurn
                         ytList.Add(pt3);
                     }
 
-                    if (Distance(ytList[0], input.PivotPosition) < 3)
-                    {
-                        FailCreate();
-                        return false;
-                    }
-
                     isOutOfBounds = false;
                     youTurnPhase = 10;
                     ytList2.Clear();
@@ -878,6 +892,43 @@ namespace AgOpenWeb.Services.YouTurn
             }
 
             return true;
+        }
+
+        /// <summary>The index of the point in <paramref name="points"/> nearest to <paramref name="p"/>.</summary>
+        private static int NearestIndex(List<Vec3> points, Vec3 p)
+        {
+            int best = 0;
+            double bestSq = double.MaxValue;
+            for (int i = 0; i < points.Count; i++)
+            {
+                double dSq = DistanceSquared(points[i], p);
+                if (dSq < bestSq) { bestSq = dSq; best = i; }
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// The offset from the base reference to the pass the turn lands on. The one formula every
+        /// consumer of a pass uses: widthMinusOverlap × pathsAway + edge offset + nudge + the tool
+        /// shift (PassGeometry), so the exit leg is byte-aligned with the cyan line and the line the
+        /// tractor steers after the turn. The pass count comes from the planned turn's width
+        /// (TurnOffset), not the skip setting: snake, alternative and skip-worked turns pick their
+        /// own target pass, and skip-and-fill forces the skip to at least 1 (#411). With a tool
+        /// offset the tractor steers beside the pass, on the other side after the turn (#446):
+        /// TurnOffset is the tractor's sideways move, the passes apart plus twice the tool shift,
+        /// signed in the turn direction (IsTurnLeft): negative when the tool offset carries the
+        /// tractor's line to the other side.
+        /// </summary>
+        private static double NextPassDistAway(YouTurnCreationInput input)
+        {
+            double widthMinusOverlap = input.ToolWidth - input.ToolOverlap;
+            double toolShift = input.IsHeadingSameWay ? input.ToolOffset : -input.ToolOffset;
+            int side = (input.IsTurnLeft ^ input.IsHeadingSameWay) ? 1 : -1;
+            int passes = input.TurnOffset != 0 && widthMinusOverlap > 0
+                ? Math.Max(1, (int)Math.Round((input.TurnOffset - 2 * toolShift * side) / widthMinusOverlap))
+                : input.RowSkipsWidth + 1;
+            int passDelta = side * passes;
+            return widthMinusOverlap * (input.HowManyPathsAway + passDelta) + input.PassEdgeOffset + input.NudgeDistance + toolShift;
         }
 
         private bool CreateKStyleTurnCurve(YouTurnCreationInput input, double turnOffset)
@@ -938,7 +989,7 @@ namespace AgOpenWeb.Services.YouTurn
                     currentPos.Northing += pointSpacing * Math.Cos(currentPos.Heading);
 
                     // Which way are we turning?
-                    double turnParameter = input.IsTurnLeft ? -1.0 : 1.0;
+                    double turnParameter = input.ArcTurnLeft ? -1.0 : 1.0;
 
                     // Update the heading
                     currentPos.Heading += (pointSpacing / input.TurnRadius) * turnParameter;
@@ -1288,6 +1339,7 @@ namespace AgOpenWeb.Services.YouTurn
             bool sameWay = input.IsHeadingSameWay;
 
             // Entry leg: walk the current pass inward from the arc start for legLength METRES.
+            arcStart = ytList[0];
             WalkLegByDistance(input.GuidancePoints, ytList[0], inClosestTurnPt.CurveIndex,
                 sameWay ? -1 : 1, legLength, insertFront: true);
 
@@ -1312,6 +1364,19 @@ namespace AgOpenWeb.Services.YouTurn
             double length, bool insertFront)
         {
             if (points == null || points.Count == 0) return;
+            // The arc was seated by MoveTurnInsideTurnLine after the curve index was taken, so
+            // the nearest curve point can lie beyond the seated arc start (or end): a leg
+            // beginning there doubled back up to a metre into the arc, a fold the path kept.
+            // Skip the points that lie behind the start, against the direction the leg walks.
+            while (idx >= 0 && idx < points.Count && idx + step >= 0 && idx + step < points.Count)
+            {
+                double walkE = points[idx + step].Easting - points[idx].Easting;
+                double walkN = points[idx + step].Northing - points[idx].Northing;
+                double toE = points[idx].Easting - start.Easting;
+                double toN = points[idx].Northing - start.Northing;
+                if (toE * walkE + toN * walkN >= 0) break;
+                idx += step;
+            }
             double distSoFar = 0;
             Vec3 point = start;
             while (true)
@@ -1354,7 +1419,9 @@ namespace AgOpenWeb.Services.YouTurn
             // pass, so the exit leg's in-field portion matches the next guidance line exactly
             // (seamless turn→track handoff) while the tangent extension lets the curve reach
             // the arc end near the boundary.
-            return CurveProcessing.ExtendCurveEnds(CurveProcessing.CreateOffsetCurve(reference, distAway));
+            // The shared pass routine (CurveProcessing.CurvePass / ExtendPass): empty where the offset
+            // removes the whole pass, no tail at an end it removed (#694).
+            return CurveProcessing.ExtendPassForTurn(CurveProcessing.CurvePass(reference, distAway));
         }
 
         private void FindInnerTurnPoints(Vec3 fromPt, double heading, TurnClosePoint turnPt, bool isSameWay)
@@ -1426,38 +1493,54 @@ namespace AgOpenWeb.Services.YouTurn
 
             closestTurnPt = new TurnClosePoint();
 
-            for (int j = _currentInput.CurrentLocationIndex; j > 0 && j < nextCurve.Count; j += count)
+            // Abreast of the tractor the next pass can be outside the field: rows skipped, a field
+            // narrowing toward this end (#544). Walk on to where it comes in; the crossing is
+            // where it leaves again. Without this the first point counted as the crossing, no
+            // turn-line segment met it, and the omega was built instead.
+            // With more rows skipped the next pass can end before the tractor's place, where the
+            // field narrows toward this end (#577): nothing ahead is inside, so walk back to its
+            // nearest part inside and take the crossing from there. AgOpenGPS starts at the
+            // tractor's index too; its omega fallback then began the turn behind the tractor.
+            int here = _currentInput.CurrentLocationIndex;
+            int start = here;
+            while (start > 0 && start < nextCurve.Count && _currentInput.IsPointInsideTurnArea(nextCurve[start]) != 0)
+                start += count;
+            if (start <= 0 || start >= nextCurve.Count)
+            {
+                start = here;
+                while (start > 0 && start < nextCurve.Count && _currentInput.IsPointInsideTurnArea(nextCurve[start]) != 0)
+                    start -= count;
+            }
+
+            for (int j = start; j > 0 && j < nextCurve.Count; j += count)
             {
                 if (j < 0 || j >= nextCurve.Count) break;
 
                 int turnIndex = _currentInput.IsPointInsideTurnArea(nextCurve[j]);
                 if (turnIndex != 0)
                 {
+                    // The flag (1 = outside), not a boundary index, as in FindCurveTurnPoint:
+                    // AgOpenWeb has one turn line, so clamp into BoundaryTurnLines.
+                    int boundaryIndex = Math.Min(turnIndex, _currentInput.BoundaryTurnLines.Count - 1);
+                    if (boundaryIndex < 0) boundaryIndex = 0;
                     closestTurnPt.CurveIndex = j - count;
-                    closestTurnPt.TurnLineNum = turnIndex;
-                    turnNum = turnIndex;
+                    closestTurnPt.TurnLineNum = boundaryIndex;
+                    turnNum = boundaryIndex;
                     break;
                 }
             }
 
-            if (turnNum < 0)
-            {
-                closestTurnPt.TurnLineNum = 0;
-                turnNum = 0;
-            }
-            else if (turnNum == 99)
+            if (turnNum == 99)
             {
                 return false;
             }
 
-            if (closestTurnPt.CurveIndex == -1)
+            if (closestTurnPt.CurveIndex == -1 || turnNum >= _currentInput.BoundaryTurnLines.Count)
             {
                 return false;
             }
 
             // Find exact intersection (including closing segment)
-            if (turnNum >= _currentInput.BoundaryTurnLines.Count) return false;
-
             var turnLinePoints = _currentInput.BoundaryTurnLines[turnNum].Points;
             for (int i = 0; i < turnLinePoints.Count; i++)
             {
@@ -1484,12 +1567,12 @@ namespace AgOpenWeb.Services.YouTurn
                     closestTurnPt.TurnLineNum = turnNum;
                     closestTurnPt.TurnLineHeading = turnLinePoints[i].Heading;
 
-                    // Check if we're going out the same curve
-                    if (closestTurnPt.TurnLineNum == startPt.TurnLineNum &&
-                        Math.Abs(closestTurnPt.TurnLineIndex - startPt.TurnLineIndex) < 3)
-                    {
-                        isOutSameCurve = true;
-                    }
+                    // The next pass crosses the turn line, so the turn leaves on it: not
+                    // isOutSameCurve. In AgOpenGPS that flag means the next pass never reaches
+                    // the turn line and the turn comes back onto the current curve where it
+                    // crosses again, a case not built here. The port set it whenever the two
+                    // crossings were on nearby turn-line segments, which is every ordinary turn
+                    // on a straight headland, and that reversed the second arc's heading.
                     break;
                 }
             }

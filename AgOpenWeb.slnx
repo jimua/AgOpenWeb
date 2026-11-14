@@ -15,15 +15,28 @@
   <Folder Name="/Shared/">
     <Project Path="Shared/AgOpenWeb.RemoteServer/AgOpenWeb.RemoteServer.csproj" />
     <Project Path="Shared/AgOpenWeb.RemoteWiring/AgOpenWeb.RemoteWiring.csproj" />
+    <Project Path="Shared/AgOpenWeb.VirtualTerminal/AgOpenWeb.VirtualTerminal.csproj" />
   </Folder>
   <Folder Name="/Simulators/">
     <Project Path="Simulators/AgOpenWeb.VehicleSimulator/AgOpenWeb.VehicleSimulator.csproj" />
     <Project Path="Simulators/AgOpenWeb.VirtualModules/AgOpenWeb.VirtualModules.csproj" />
   </Folder>
   <Folder Name="/Tests/">
+    <Project Path="Tests/AgOpenWeb.DumpReplayScenarios.Tests/AgOpenWeb.DumpReplayScenarios.Tests.csproj" />
+    <Project Path="Tests/AgOpenWeb.FieldJobScenarios.Tests/AgOpenWeb.FieldJobScenarios.Tests.csproj" />
+    <Project Path="Tests/AgOpenWeb.FieldScenarios.Tests/AgOpenWeb.FieldScenarios.Tests.csproj" />
+    <Project Path="Tests/AgOpenWeb.GpsNtripScenarios.Tests/AgOpenWeb.GpsNtripScenarios.Tests.csproj" />
+    <Project Path="Tests/AgOpenWeb.IsobusScenarios.Tests/AgOpenWeb.IsobusScenarios.Tests.csproj" />
+    <Project Path="Tests/AgOpenWeb.MachineModuleScenarios.Tests/AgOpenWeb.MachineModuleScenarios.Tests.csproj" />
     <Project Path="Tests/AgOpenWeb.Models.Tests/AgOpenWeb.Models.Tests.csproj" />
+    <Project Path="Tests/AgOpenWeb.RemoteServer.Tests/AgOpenWeb.RemoteServer.Tests.csproj" />
     <Project Path="Tests/AgOpenWeb.Services.Tests/AgOpenWeb.Services.Tests.csproj" />
+    <Project Path="Tests/AgOpenWeb.SteerWizardScenarios.Tests/AgOpenWeb.SteerWizardScenarios.Tests.csproj" />
+    <Project Path="Tests/AgOpenWeb.UpdateScenarios.Tests/AgOpenWeb.UpdateScenarios.Tests.csproj" />
+    <Project Path="Tests/AgOpenWeb.VehicleToolScenarios.Tests/AgOpenWeb.VehicleToolScenarios.Tests.csproj" />
     <Project Path="Tests/AgOpenWeb.ViewModels.Tests/AgOpenWeb.ViewModels.Tests.csproj" />
+    <Project Path="Tests/AgOpenWeb.WebClientScenarios.Tests/AgOpenWeb.WebClientScenarios.Tests.csproj" />
+    <Project Path="Tests/AgOpenWeb.WorkingDayScenarios.Tests/AgOpenWeb.WorkingDayScenarios.Tests.csproj" />
     <Project Path="Tests/SeederTerminal.Core.Tests/SeederTerminal.Core.Tests.csproj" />
   </Folder>
   <Project Path="Platforms/AgOpenWeb.Desktop/AgOpenWeb.Desktop.csproj" />

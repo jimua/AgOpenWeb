@@ -1,18 +1,6 @@
 // AgOpenWeb
 // Copyright (C) 2024-2026 AgOpenWeb Contributors
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: Apache-2.0
 
 using System.Collections.Generic;
 using AgOpenWeb.Models.Base;
@@ -39,6 +27,7 @@ public record YouTurnSnapshot
     // Turn path
     public IReadOnlyList<Vec3>? TurnPath { get; init; }
     public int PathIndex { get; init; }
+    public Vec3? ArcStart { get; init; }
 
     // Direction
     public bool IsTurnLeft { get; init; }
@@ -66,6 +55,13 @@ public record YouTurnSnapshot
 
     public IReadOnlyList<int>? SnakeSequence { get; init; }
     public int SnakeIndex { get; init; }
+
+    // Alternative skip pattern (#111).
+    public int AltSign { get; init; }
+    public int AltBaseWidth { get; init; }
+    public int AltWidth { get; init; }
+    public int AltTurnSkips { get; init; }
+    public bool AltPrevBig { get; init; }
 
     public TractorZone CurrentZone { get; init; }
 
