@@ -2,11 +2,13 @@
   import { _ } from 'svelte-i18n'
   import { speedKph, statusBar } from '../remote/session'
 
+  let { compact = false }: { compact?: boolean } = $props()
+
   let gpsOk = $derived(!!$statusBar?.gpsOk)
   let fixText = $derived($statusBar?.fixText || (gpsOk ? 'GPS OK' : 'NO GPS'))
 </script>
 
-<div class="widget">
+<div class="widget" class:compact>
   <div class="top-row">
     <div class="label">{$_('speed')}</div>
     <div class="gnss" class:ok={gpsOk} title={fixText}>
@@ -76,5 +78,27 @@
   .unit {
     font-size: 12px;
     color: var(--text-muted);
+  }
+  .compact {
+    display: grid;
+    align-content: center;
+    min-width: 0;
+    padding: 4px 6px;
+  }
+  .compact .top-row {
+    flex-wrap: wrap;
+    gap: 0 4px;
+  }
+  .compact .label {
+    font-size: 11px;
+  }
+  .compact .gnss {
+    padding: 0 4px;
+  }
+  .compact .value {
+    font-size: 26px;
+  }
+  .compact .unit {
+    line-height: 14px;
   }
 </style>

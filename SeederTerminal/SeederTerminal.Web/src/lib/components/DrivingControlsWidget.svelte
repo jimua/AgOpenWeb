@@ -2,6 +2,8 @@
   import { _ } from 'svelte-i18n'
   import { tick, sendCommand } from '../remote/session'
 
+  let { compact = false }: { compact?: boolean } = $props()
+
   let op = $derived($tick?.op)
 
   function toggleMaster() {
@@ -15,7 +17,7 @@
   }
 </script>
 
-<div class="widget">
+<div class="widget" class:compact>
   <div class="label">{$_('driving')}</div>
   <div class="buttons">
     <button
@@ -81,5 +83,20 @@
     width: 100%;
     height: 100%;
     object-fit: contain;
+  }
+  .compact {
+    padding: 4px 6px;
+  }
+  .compact .label {
+    line-height: 14px;
+    margin-bottom: 3px;
+  }
+  .compact .buttons {
+    gap: 4px;
+  }
+  .compact button {
+    width: 48px;
+    height: 48px;
+    padding: 6px;
   }
 </style>

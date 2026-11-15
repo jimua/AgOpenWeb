@@ -53,7 +53,7 @@
   <MapCanvas />
   <Drawer />
 
-  <header class="topbar">
+  <header class="topbar" class:portrait={!landscape}>
     <div class="brand">{$_('app.title')}</div>
     <div class="fps" title="Client render rate">
       <span class="fps-k">FPS</span>
@@ -77,12 +77,13 @@
       <DrivingControlsWidget />
     </aside>
   {:else}
-    <aside class="lane top">
-      <SpeedWidget />
+    <aside class="lane portrait">
+      <div class="portrait-controls">
+        <SpeedWidget compact />
+        <DrivingControlsWidget compact />
+      </div>
       <SeedRateWidget />
-    </aside>
-    <aside class="lane bottom">
-      <DrivingControlsWidget />
+      <div class="portrait-map-gap" aria-hidden="true"></div>
       <SingulationWidget />
     </aside>
   {/if}
@@ -168,6 +169,21 @@
     font-size: 12px;
     font-weight: 700;
   }
+  .topbar.portrait {
+    gap: 6px;
+    padding: 6px 10px;
+  }
+  .topbar.portrait .brand {
+    font-size: 13px;
+    line-height: 15px;
+  }
+  .topbar.portrait .fps,
+  .topbar.portrait .conn {
+    padding-inline: 5px;
+  }
+  .topbar.portrait .langs button {
+    padding-inline: 5px;
+  }
   .lane {
     position: fixed;
     z-index: 15;
@@ -187,23 +203,41 @@
   }
   .lane.right {
     top: calc(52px + var(--safe-t));
+    bottom: calc(12px + var(--safe-b));
     right: calc(10px + var(--safe-r));
     width: min(280px, 32vw);
     flex-direction: column;
   }
-  .lane.top {
+  .lane.portrait {
     top: calc(52px + var(--safe-t));
-    left: 50%;
-    transform: translateX(-50%);
+    left: calc(10px + var(--safe-l));
+    right: calc(10px + var(--safe-r));
+    height: calc(100% - 64px - var(--safe-t) - var(--safe-b));
+    height: calc(100dvh - 64px - var(--safe-t) - var(--safe-b));
+    max-width: 380px;
+    margin-inline: auto;
     flex-direction: column;
-    width: min(320px, 90vw);
+    gap: 5px;
   }
-  .lane.bottom {
-    bottom: calc(12px + var(--safe-b));
-    left: 50%;
-    transform: translateX(-50%);
-    flex-direction: column;
-    width: min(320px, 90vw);
+  .lane > .portrait-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+    flex: none;
+    pointer-events: none;
+  }
+  .portrait-controls > :global(*) {
+    pointer-events: auto;
+  }
+  .lane > .portrait-map-gap {
+    flex: 1 0 12px;
+    pointer-events: none;
+  }
+  .portrait > :global(.section-widget) {
+    /* Keep the strips clear of the drawer handle and camera buttons. */
+    width: calc(100% - 78px);
+    margin-inline-start: 22px;
+    max-height: none;
   }
   .spacer {
     flex: 1;
