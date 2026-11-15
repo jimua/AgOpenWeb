@@ -1,10 +1,11 @@
 <script lang="ts">
   import { _ } from 'svelte-i18n'
-  import { seedRateActual, seedRateSetpoint, simulatedSections } from '../stores/seederSim'
+  import { seederTelemetry } from '../stores/seederTelemetry'
 
+  let setpoint = $derived($seederTelemetry?.setpoint)
   let devPct = $derived(
-    $seedRateSetpoint > 0
-      ? (($seedRateActual - $seedRateSetpoint) / $seedRateSetpoint) * 100
+    $seederTelemetry && $seederTelemetry.setpoint > 0
+      ? (($seederTelemetry.actual - $seederTelemetry.setpoint) / $seederTelemetry.setpoint) * 100
       : 0,
   )
   let isAlert = $derived(Math.abs(devPct) > 10)
@@ -16,24 +17,24 @@
   <div class="header">
     <div class="top-row">
       <div class="label">{$_('seedRate')}</div>
-      <div class="dev-badge" class:alert={isAlert}>
-        {devText}
-      </div>
+      {#if $seederTelemetry}
+        <div class="dev-badge" class:alert={isAlert}>{devText}</div>
+      {/if}
     </div>
     <div class="rates-row">
       <div>
         <div class="sub">{$_('actual')}</div>
-        <div class="value">{Math.round($seedRateActual).toLocaleString()}</div>
+        <div class="value">{$seederTelemetry ? Math.round($seederTelemetry.actual).toLocaleString() : '—'}</div>
       </div>
       <div>
         <div class="sub">{$_('setpoint')}</div>
-        <div class="value dim">{Math.round($seedRateSetpoint).toLocaleString()}</div>
+        <div class="value dim">{setpoint === undefined ? '—' : Math.round(setpoint).toLocaleString()}</div>
       </div>
     </div>
   </div>
   <div class="list">
-    {#each $simulatedSections as sec (sec.index)}
-      {@const pct = $seedRateSetpoint > 0 ? Math.min(120, (sec.seedRateActual / $seedRateSetpoint) * 100) : 0}
+    {#each $seederTelemetry?.sections ?? [] as sec (sec.index)}
+      {@const pct = setpoint && setpoint > 0 ? Math.min(120, (sec.seedRateActual / setpoint) * 100) : 0}
       <div class="row">
         <span class:on={sec.isOn}>{sec.index}</span>
         <div class="track">

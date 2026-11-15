@@ -11,6 +11,12 @@
     <AssemblyName>SeederTerminal.Desktop</AssemblyName>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(SeederDevBackend)' == 'true'">
+    <OutputType>Exe</OutputType>
+    <OutputPath>bin\DevBackend\$(Configuration)\</OutputPath>
+    <IntermediateOutputPath>obj\DevBackend\$(Configuration)\</IntermediateOutputPath>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.0.3" />
     <PackageReference Include="Avalonia.Desktop" Version="12.0.3" />
@@ -19,6 +25,7 @@
     <PackageReference Include="Avalonia.Controls.WebView" Version="12.0.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="3.119.4" />
   </ItemGroup>
 
   <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('win'))">
@@ -27,15 +34,17 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Platforms\AgOpenWeb.Desktop\AgOpenWeb.Desktop.csproj" />
+    <Compile Include="..\..\Platforms\Desktop.Common\DesktopBatteryService.cs" Link="Services\DesktopBatteryService.cs" />
     <ProjectReference Include="..\..\Shared\AgOpenWeb.RemoteWiring\AgOpenWeb.RemoteWiring.csproj" />
     <ProjectReference Include="..\..\Shared\AgOpenWeb.RemoteServer\AgOpenWeb.RemoteServer.csproj" />
     <ProjectReference Include="..\..\Shared\AgOpenWeb.Services\AgOpenWeb.Services.csproj" />
+    <ProjectReference Include="..\..\Shared\AgOpenWeb.VirtualTerminal\AgOpenWeb.VirtualTerminal.csproj" />
     <ProjectReference Include="..\SeederTerminal.Core\SeederTerminal.Core.csproj" />
   </ItemGroup>
 
   <!-- Build Svelte SPA then copy dist next to the exe for RemoteServerHost uiContentRoot. -->
-  <Target Name="BuildSeederWeb" BeforeTargets="Build" Condition="Exists('..\SeederTerminal.Web\package.json')">
+  <Target Name="BuildSeederWeb" BeforeTargets="Build"
+          Condition="'$(SeederDevBackend)' != 'true' And Exists('..\SeederTerminal.Web\package.json')">
     <Exec WorkingDirectory="..\SeederTerminal.Web" Command="npm run build" />
     <Error Condition="!Exists('..\SeederTerminal.Web\dist\index.html')"
            Text="SeederTerminal.Web build failed: dist/index.html missing. Run 'npm install &amp;&amp; npm run build' in SeederTerminal.Web." />

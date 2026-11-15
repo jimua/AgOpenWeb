@@ -1,15 +1,15 @@
 <script lang="ts">
   import { _ } from 'svelte-i18n'
-  import { simulatedSections, totalSingulation } from '../stores/seederSim'
+  import { seederTelemetry } from '../stores/seederTelemetry'
 </script>
 
 <div class="widget">
   <div class="header">
     <div class="label">{$_('singulation')}</div>
-    <div class="total">{$totalSingulation.toFixed(1)}%</div>
+    <div class="total">{$seederTelemetry ? `${$seederTelemetry.totalSingulation.toFixed(1)}%` : '—'}</div>
   </div>
   <div class="list">
-    {#each $simulatedSections as sec (sec.index)}
+    {#each $seederTelemetry?.sections ?? [] as sec (sec.index)}
       <div class="row">
         <span class:on={sec.isOn}>{sec.index}</span>
         <div class="track">

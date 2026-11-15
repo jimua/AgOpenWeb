@@ -1,18 +1,10 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using AgOpenWeb.Desktop.DependencyInjection;
-using AgOpenWeb.Models.Configuration;
-using AgOpenWeb.Models.State;
-using AgOpenWeb.Services.Interfaces;
-using AgOpenWeb.Services.Threading;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using SeederTerminal.Core;
 using NativeWebView = Avalonia.Controls.NativeWebView;
 
 namespace SeederTerminal.Desktop;
@@ -20,7 +12,7 @@ namespace SeederTerminal.Desktop;
 /// <summary>Starts AgOpenWeb WebBackend on :5175 serving SeederTerminal Vite dist + WebView.</summary>
 public sealed class MainWindow : Window
 {
-    public const int Port = 5175;
+    public const int Port = SeederBackend.ProductPort;
 
     private const string LauncherErrorLogName = "seeder-terminal-launcher-error.log";
 
@@ -31,9 +23,7 @@ public sealed class MainWindow : Window
         IsVisible = false,
     };
     private readonly Border _splash;
-    private IHost? _host;
-    private HostLoopDispatcher? _hostLoop;
-    private AgOpenWeb.RemoteWiring.WebBackend? _backend;
+    private Task<SeederBackend>? _backendStart;
     private bool _closing;
 
     public MainWindow()
@@ -75,10 +65,9 @@ public sealed class MainWindow : Window
                     "Seeder UI not found. Build the Desktop project (copies SeederTerminal.Web/dist to wwwroot) " +
                     "or run 'npm install && npm run build' in SeederTerminal.Web.");
 
-            var started = await Task.Run(() => StartBackendAsync(uiRoot));
-            _host = started.Host;
-            _hostLoop = started.HostLoop;
-            _backend = started.Backend;
+            _backendStart = Task.Run(() => SeederBackend.StartAsync(Port, uiRoot));
+            await _backendStart;
+            if (_closing) return;
 
             _web.IsVisible = true;
             _web.Source = new Uri($"http://127.0.0.1:{Port}/");
@@ -87,53 +76,14 @@ public sealed class MainWindow : Window
         {
             var log = Path.Combine(Path.GetTempPath(), LauncherErrorLogName);
             try { File.WriteAllText(log, ex.ToString()); } catch { /* best effort */ }
-            try { await StopBackendAsync(); } catch { /* best effort */ }
+            if (_closing) return;
+            if (_backendStart is { IsCompletedSuccessfully: false })
+                _backendStart = null;
 
             _splash.IsVisible = true;
             _splash.Child = SplashText(
                 $"Seeder Terminal failed to start.\n\n{ex.Message}\n\nDetails: {log}");
         }
-    }
-
-    private static (IHost Host, HostLoopDispatcher HostLoop, AgOpenWeb.RemoteWiring.WebBackend Backend) StartBackendAsync(string uiRoot)
-    {
-        var hostLoop = new HostLoopDispatcher();
-        var host = Host.CreateDefaultBuilder()
-            .ConfigureServices(services =>
-            {
-                services.AddAgOpenWebServices();
-                services.AddSingleton(hostLoop);
-                services.AddSingleton<IUiDispatcher>(hostLoop);
-                services.AddSingleton<IUiTimerFactory>(hostLoop);
-                services.AddSingleton<IMapService, AgOpenWeb.Services.NullMapService>();
-                services.AddSingleton<ISeederTelemetrySource, SimulatedSeederTelemetrySource>();
-            })
-            .Build();
-
-        var sp = host.Services;
-        var backend = AgOpenWeb.RemoteWiring.WebBackend.StartAsync(
-            sp,
-            new NullBoundaryImageryCapture(),
-            Port,
-            uiRoot).GetAwaiter().GetResult();
-        var remoteServer = backend.Server;
-        SeederTelemetryWiring.Attach(
-            remoteServer,
-            sp.GetRequiredService<ISeederTelemetrySource>(),
-            sp.GetRequiredService<ISectionControlService>());
-
-        var configService = sp.GetRequiredService<IConfigurationService>();
-        var persistentState = sp.GetRequiredService<IPersistentStateService>();
-        var lifetime = sp.GetRequiredService<IHostApplicationLifetime>();
-        lifetime.ApplicationStopping.Register(() =>
-        {
-            try { configService.SaveAppSettings(); } catch (Exception ex) { Console.WriteLine($"[seeder] save config failed: {ex.Message}"); }
-            try { persistentState.Save(); } catch (Exception ex) { Console.WriteLine($"[seeder] save state failed: {ex.Message}"); }
-            try { remoteServer.StopAsync().GetAwaiter().GetResult(); } catch (Exception ex) { Console.WriteLine($"[seeder] server stop failed: {ex.Message}"); }
-        });
-
-        host.StartAsync().GetAwaiter().GetResult();
-        return (host, hostLoop, backend);
     }
 
     private static string? ResolveWwwRoot()
@@ -155,32 +105,29 @@ public sealed class MainWindow : Window
 
     protected override void OnClosing(WindowClosingEventArgs e)
     {
-        if (_host is not null && _backend is not null && !_closing)
+        if (_backendStart is { } backendStart)
         {
             e.Cancel = true;
-            _closing = true;
-            _ = StopThenCloseAsync();
+            if (!_closing)
+            {
+                _closing = true;
+                _ = StopThenCloseAsync(backendStart);
+            }
         }
         base.OnClosing(e);
     }
 
-    private async Task StopThenCloseAsync()
+    private async Task StopThenCloseAsync(Task<SeederBackend> backendStart)
     {
-        try { await Task.Run(StopBackendAsync); } catch { /* close regardless */ }
-        Close();
-    }
-
-    private async Task StopBackendAsync()
-    {
-        if (_host is { } host)
+        await Task.Yield();
+        try
         {
-            try { await host.StopAsync(); } catch { /* ignore */ }
-            host.Dispose();
+            var backend = await backendStart;
+            await Task.Run(async () => await backend.DisposeAsync());
         }
-        _hostLoop?.Dispose();
-        _host = null;
-        _hostLoop = null;
-        _backend = null;
+        catch { /* close regardless */ }
+        _backendStart = null;
+        Close();
     }
 
     private static Control SplashText(string message) => new TextBlock

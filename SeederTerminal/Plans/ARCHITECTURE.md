@@ -8,10 +8,10 @@ SeederTerminal is a cabin-first seeder product UI that uses AgOpenWeb’s guidan
 - Modern UI: **Svelte 5 + TypeScript + Vite + Tailwind** (not AgOpenWeb’s monolithic `wwwroot` HTML).
 - Platforms: Desktop WebView, LAN browser, Android.
 - Local-first: runs with **zero internet** on the tractor tablet/IPC.
-- Seeder metrics (singulation / seed rate) **simulated** until a ROS2 telemetry source exists.
+- Seeder Desktop simulates singulation and seed rate in the backend until a ROS2 telemetry source exists. The UI displays telemetry received over WebSocket.
 - i18n: English + Ukrainian. Themes deferred (CSS variables reserved).
 
-AgOpenWeb’s reference PWA (`Shared/AgOpenWeb.RemoteServer/wwwroot`, port **5174**) stays in-repo for protocol/map reference. Seeder product host uses port **5175**.
+Seeder Desktop serves the built cockpit on **5175**. In headless development it serves WebSocket telemetry, map assets, and the embedded reference PWA on **5174**, with the Vite cockpit on **5175**.
 
 ## Local-first (not cloud)
 
@@ -61,23 +61,23 @@ AgOpenWeb/
 
 ## Backend hosting
 
-**Spike:** Vite proxies `/ws`, `/vendor`, `/sattile`, `/backpic` to AgOpenWeb `:5174`.
+**Development.** Vite proxies WebSocket and map asset requests to Seeder Desktop running with `--dev-backend` on **5174**. The embedded reference PWA provides the GPS simulator controls for that backend. See the [Web README](../SeederTerminal.Web/README.md) for launch commands.
 
-**Product:** Desktop/Android start WebBackend (or thin Seeder host) on **5175**, serve Vite `dist/`. Prefer reusing `RemoteServerHost` with a Seeder content root; introduce `SeederTerminal.Server` only if embedded AgOpenWeb `wwwroot` conflicts.
+**Product.** Seeder Desktop starts the shared `WebBackend` on **5175** with the built Vite SPA as the content root. The planned Android host uses the same product port.
 
 ## Telemetry seam
 
 `SeederTerminal.Core`:
 
 - `ISeederTelemetrySource`
-- `SimulatedSeederTelemetrySource` (v1)
+- `SimulatedSeederTelemetrySource` (both Desktop launch modes)
 - `Ros2SeederTelemetrySource` (later)
 
 Config/profiles: use AgOpenWeb `ConfigurationStore` unless a concrete gap appears.
 
 ## Phasing
 
-1. Spike — Svelte app + map/transport against AgOpenWeb `:5174` + Main overlays. See [`SPIKE_NOTES.md`](SPIKE_NOTES.md).
+1. Spike — Svelte app, map transport, and main overlays. See [`SPIKE_NOTES.md`](SPIKE_NOTES.md) for the original setup.
 2. Product shell — Desktop/Android on `:5175`, embed/serve `dist/`, Core telemetry seam.
 3. Post-spike next steps — see [`NEXT_STEPS.md`](NEXT_STEPS.md) (Phases A–E).
 4. Later — ROS2, themes, optional cloud sync.

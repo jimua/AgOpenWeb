@@ -6,7 +6,7 @@ Spike succeeded:
 
 - Svelte Main on Vite `:5175` with CanvasKit map, pose interpolation, ground texture, grid, overlays, EN/UK
 - AgOpenWeb `RemoteServerHost` / `WebBackend` accept `port` + `uiContentRoot`
-- [`SeederTerminal.Desktop`](../SeederTerminal.Desktop/) hosts WebBackend on **5175** + WebView; Core `ISeederTelemetrySource` streams live telemetry to the UI over WS type 30 (with client sim as Vite-dev fallback)
+- [`SeederTerminal.Desktop`](../SeederTerminal.Desktop/) hosts WebBackend on **5175** with the WebView and on **5174** in headless Vite development. Both stream backend-simulated seeder telemetry over WebSocket type 30.
 - Android is contract-only ([`README.md`](../SeederTerminal.Android/README.md))
 
 Day-to-day spike still often uses **AgOpenWeb Desktop `:5174` + Vite proxy**. Product path is **one process**: Seeder Desktop serves `dist/` + `/ws` + vendor assets.
@@ -47,7 +47,7 @@ Goal: `npm run build` + `dotnet run` Seeder Desktop is the normal cabin loop.
 - Verify `BuildSeederWeb` always produces `wwwroot/` next to the exe; fail the build loudly if `dist`/`index.html` missing
 - Confirm single-host serves: SPA, `/ws`, CanvasKit `/vendor`, `/icons`, `/sattile`, `/backpic` (no Vite proxy)
 - Harden splash / start-failure UX in `MainWindow.cs`
-- Document in `SeederTerminal.Web/README.md`: **dev** = AgOpenWeb `:5174` + `npm run dev`; **product** = Seeder Desktop only
+- See `SeederTerminal.Web/README.md` for the headless Seeder backend and Vite workflow.
 - Keep AgOpenWeb `wwwroot` on `:5174` as reference only
 
 ### Phase B — Map / guidance visual parity (Done)
@@ -71,7 +71,7 @@ Stayed in `renderer.ts` + related stores; did not fork WireCodec.
 ### Phase D — Seeder telemetry path (Done)
 
 - Drive Seeder telemetry from **Core** (over a Seeder-owned WS extension type 30) so Desktop and future Android share one source
-- SPA widgets subscribe to that feed; keep client sim only as a Vite-dev fallback when no host telemetry is present
+- SPA widgets subscribe to that feed and show unavailable readings when host telemetry is absent.
 
 ### Phase E — Android product head
 
@@ -104,7 +104,8 @@ Mirror `Platforms/AgOpenWeb.Android`: foreground `BackendService` + `NativeWebVi
 **Dev (hot reload):**
 
 ```bash
-dotnet run --project Platforms/AgOpenWeb.Desktop/AgOpenWeb.Desktop.csproj
+dotnet run --project SeederTerminal/SeederTerminal.Desktop/SeederTerminal.Desktop.csproj -p:SeederDevBackend=true -- --dev-backend
+# Separate terminal
 cd SeederTerminal/SeederTerminal.Web && npm run dev
 # http://localhost:5175 (proxies /ws + vendor to :5174)
 ```

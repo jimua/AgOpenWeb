@@ -67,6 +67,10 @@
 
 
   <ItemGroup>
+    <Compile Include="..\Desktop.Common\DesktopBatteryService.cs" Link="Services\DesktopBatteryService.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\Shared\AgOpenWeb.Models\AgOpenWeb.Models.csproj" />
     <ProjectReference Include="..\..\Shared\AgOpenWeb.Services\AgOpenWeb.Services.csproj" />
     <ProjectReference Include="..\..\Shared\AgOpenWeb.ViewModels\AgOpenWeb.ViewModels.csproj" />

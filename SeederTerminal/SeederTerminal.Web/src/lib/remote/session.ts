@@ -15,7 +15,7 @@ import type {
 } from './types'
 import { pushTickPose, clearPoseBuffer } from '../map/poseBuffer'
 import { clearCoverageState, queueCoverageCells, setCoverageEdges, setCoverageInit, type CoverageInit } from '../map/coverageState'
-import { applyHostTelemetry } from '../stores/seederSim'
+import { applyHostTelemetry, clearSeederTelemetry } from '../stores/seederTelemetry'
 
 export const currentPage = writable<PageType>('main')
 
@@ -35,7 +35,6 @@ export const speedKph = derived([tick, statusBar], ([$tick, $status]) => {
   return ms * 3.6
 })
 
-export const sectionStates = derived(tick, ($t) => $t?.sections ?? [])
 export const isMetric = derived(statusBar, ($s) => $s?.isMetric ?? true)
 
 let transport: ReturnType<typeof createRemoteTransport> | null = null
@@ -87,6 +86,7 @@ export function startRemote() {
           presenceTimer = setInterval(() => transport?.send('control.presence'), 500)
         }
       } else {
+        clearSeederTelemetry()
         id = null
         control = null
         clientId.set(null)
@@ -110,6 +110,7 @@ export function stopRemote() {
   displayTexture.disconnect()
   transport?.stop()
   transport = null
+  clearSeederTelemetry()
   clearPoseBuffer()
   clearCoverageState()
 }

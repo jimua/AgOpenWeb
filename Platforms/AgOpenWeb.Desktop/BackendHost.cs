@@ -4,12 +4,12 @@
 
 using System;
 using System.Threading.Tasks;
-using AgOpenWeb.Desktop.DependencyInjection;
+using AgOpenWeb.DesktopServices;
 using AgOpenWeb.Models.Configuration;
 using AgOpenWeb.Models.State;
-using AgOpenWeb.Services;
+using AgOpenWeb.RemoteWiring;
 using AgOpenWeb.Services.Interfaces;
-using AgOpenWeb.Services.Threading;
+using AgOpenWeb.VirtualTerminal;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -33,7 +33,6 @@ namespace AgOpenWeb.Desktop;
 /// </summary>
 internal sealed class BackendHost
 {
-    private HostLoopDispatcher? _hostLoop;
     private IHost? _host;
     private AgOpenWeb.RemoteServer.RemoteServerHost? _remoteServer;
 
@@ -49,9 +48,6 @@ internal sealed class BackendHost
     {
         if (IsRunning) return;
 
-        // The single host-loop thread that stands in for the Avalonia UI thread.
-        var hostLoop = new HostLoopDispatcher();
-
         var host = Host.CreateDefaultBuilder(args)
             // Under a systemd Type=notify service: SystemdLifetime (SIGTERM + READY=1) +
             // journald log format. No-op off systemd (so the console daemon keeps
@@ -65,15 +61,9 @@ internal sealed class BackendHost
             .UseWindowsService()
             .ConfigureServices(services =>
             {
-                services.AddAgOpenWebServices();
-
-                // Headless overrides (last registration wins). The Avalonia-backed
-                // dispatcher/timer and SkiaMapControl MapService from AddAgOpenWebServices
-                // are never resolved on this path.
-                services.AddSingleton(hostLoop);
-                services.AddSingleton<IUiDispatcher>(hostLoop);
-                services.AddSingleton<IUiTimerFactory>(hostLoop);
-                services.AddSingleton<IMapService, NullMapService>();
+                services.AddDesktopGuidanceServices();
+                services.AddSingleton<IBatteryService, DesktopBatteryService>();
+                services.AddSingleton<IVirtualTerminalService, VirtualTerminalService>();
 
                 // Pets the systemd hardware watchdog (WatchdogSec) via sd_notify; no-op
                 // when not under a watchdog-enabled systemd service.
@@ -87,7 +77,7 @@ internal sealed class BackendHost
         // platform-agnostic sequence (identical on the daemon, the WebView launcher,
         // and the mobile heads). hostLoop is registered as IUiDispatcher, so WebBackend
         // posts the wiring onto it just like the old windowed Avalonia UI thread.
-        var backend = await AgOpenWeb.RemoteWiring.WebBackend.StartAsync(sp, new DesktopImageryCapture());
+        var backend = await WebBackend.StartAsync(sp, new DesktopImageryCapture());
         var remoteServer = backend.Server;
 
         var configService = sp.GetRequiredService<IConfigurationService>();
@@ -123,7 +113,6 @@ internal sealed class BackendHost
 
         await host.StartAsync();
 
-        _hostLoop = hostLoop;
         _host = host;
         _remoteServer = remoteServer;
         IsRunning = true;
@@ -143,9 +132,7 @@ internal sealed class BackendHost
             try { await host.StopAsync(); } catch { /* a stop fault must not wedge the caller */ }
             host.Dispose();
         }
-        _hostLoop?.Dispose();
         _host = null;
-        _hostLoop = null;
         _remoteServer = null;
         IsRunning = false;
     }

@@ -3,6 +3,8 @@
 Date: 2026-08-08  
 Branch: `seeder-terminal`
 
+These notes record the original spike. For the current development workflow, see the [Web README](../SeederTerminal.Web/README.md).
+
 ## What was proven
 
 1. **Svelte 5 + TS + Vite + Tailwind** SPA builds cleanly (`SeederTerminal.Web`).

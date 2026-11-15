@@ -16,6 +16,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\AgOpenWeb.Models\AgOpenWeb.Models.csproj" />
     <ProjectReference Include="..\AgOpenWeb.Services\AgOpenWeb.Services.csproj" />
     <ProjectReference Include="..\AgOpenWeb.ViewModels\AgOpenWeb.ViewModels.csproj" />

@@ -11,7 +11,7 @@ using System.Threading;
 using AgOpenWeb.Models;
 using AgOpenWeb.Services.Interfaces;
 
-namespace AgOpenWeb.Desktop.Services;
+namespace AgOpenWeb.DesktopServices;
 
 /// <summary>
 /// Desktop battery reader. Polls every 15 s on a background timer.

@@ -497,11 +497,14 @@ export function createRemoteTransport(handlers) {
         }
         case TYPE.SEEDER_TELEMETRY: {
           const setpoint = f64(), actual = f64(), totalSingulation = f64(), count = i32();
+          if (count <= 0 || dv.byteLength - o !== count * 9 ||
+              ![setpoint, actual, totalSingulation].every(Number.isFinite)) break;
           const sections = new Array(count);
           for (let k = 0; k < count; k++) {
             const isOn = !!u8();
             const singulationPercent = f32();
             const seedRateActual = f32();
+            if (!Number.isFinite(singulationPercent) || !Number.isFinite(seedRateActual)) return;
             sections[k] = { index: k + 1, isOn, singulationPercent, seedRateActual };
           }
           handlers.onSeederTelemetry && handlers.onSeederTelemetry({
@@ -513,6 +516,7 @@ export function createRemoteTransport(handlers) {
     }
 
     function connect() {
+      if (stopped) return;
       status('connecting…');
       ws = new WebSocket(url);
       ws.binaryType = 'arraybuffer';
@@ -524,7 +528,14 @@ export function createRemoteTransport(handlers) {
 
     return {
       start() { stopped = false; connect(); },
-      stop() { stopped = true; if (ws) ws.close(); },
+      stop() {
+        stopped = true;
+        if (ws) {
+          ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null;
+          ws.close();
+        }
+        status('disconnected');
+      },
       // Client→host command: a short text frame carrying a command id.
       send(cmd) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(cmd); },
     };

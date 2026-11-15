@@ -1,6 +1,6 @@
 namespace SeederTerminal.Core;
 
-/// <summary>Client/host-side stand-in until ROS2 publishes real planter telemetry.</summary>
+/// <summary>Backend simulator used until ROS2 publishes real planter telemetry.</summary>
 public sealed class SimulatedSeederTelemetrySource : ISeederTelemetrySource
 {
     private readonly Random _rng = new();

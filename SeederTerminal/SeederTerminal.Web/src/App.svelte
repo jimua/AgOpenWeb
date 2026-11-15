@@ -4,7 +4,6 @@
   import './lib/i18n'
   import { setLanguage } from './lib/i18n'
   import { startRemote, stopRemote, connState, currentPage } from './lib/remote/session'
-  import { startSeederSimulation, stopSeederSimulation } from './lib/stores/seederSim'
   import MapCanvas from './lib/components/MapCanvas.svelte'
   import Drawer from './lib/components/Drawer.svelte'
   import ProgramPage from './lib/pages/ProgramPage.svelte'
@@ -27,11 +26,9 @@
     updateLayout()
     window.addEventListener('resize', updateLayout)
     startRemote()
-    startSeederSimulation()
     return () => {
       window.removeEventListener('resize', updateLayout)
       stopRemote()
-      stopSeederSimulation()
     }
   })
 

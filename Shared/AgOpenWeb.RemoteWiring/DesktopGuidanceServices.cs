@@ -23,14 +23,13 @@ using AgOpenWeb.ViewModels;
 using AgOpenWeb.Models;
 using AgOpenWeb.Models.Pipeline;
 using AgOpenWeb.Models.State;
-using AgOpenWeb.Desktop.Services;
 using AgOpenWeb.Services.Threading;
 
-namespace AgOpenWeb.Desktop.DependencyInjection;
+namespace AgOpenWeb.RemoteWiring;
 
-public static class ServiceCollectionExtensions
+public static class DesktopGuidanceServices
 {
-    public static IServiceCollection AddAgOpenWebServices(this IServiceCollection services)
+    public static IServiceCollection AddDesktopGuidanceServices(this IServiceCollection services)
     {
         // Configure structured logging
         services.AddLogging(builder =>
@@ -48,11 +47,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(sp => sp.GetRequiredService<AgOpenWeb.Models.State.BackendStateLease>().Store);
         services.AddSingleton(sp => sp.GetRequiredService<AgOpenWeb.Models.State.BackendStateLease>().Persistent);
 
-        // UI-thread dispatcher + timer abstraction. With the native UI gone, the sole
-        // consumer of this graph is BackendHost (daemon + WebView launcher), which runs
-        // the VM/pipeline on a single HostLoopDispatcher standing in for the old Avalonia
-        // UI thread. BackendHost re-registers its own instance (last-wins); these defaults
-        // keep the container resolvable on its own. See Plans/Completed/CONFIG_STATE_AUDIT.md §11.
+        // Both desktop hosts run the VM on one dispatcher for commands and timer callbacks.
         services.AddSingleton<HostLoopDispatcher>();
         services.AddSingleton<IUiDispatcher>(sp => sp.GetRequiredService<HostLoopDispatcher>());
         services.AddSingleton<IUiTimerFactory>(sp => sp.GetRequiredService<HostLoopDispatcher>());
@@ -107,8 +102,6 @@ public static class ServiceCollectionExtensions
 
         // ISOBUS task controller link: PGN 240 heartbeat in, PGN 241 section control out
         services.AddSingleton<IIsobusTaskControllerService, AgOpenWeb.Services.Isobus.IsobusTaskControllerService>();
-        // ISOBUS virtual terminal for the VT card
-        services.AddSingleton<IVirtualTerminalService, AgOpenWeb.VirtualTerminal.VirtualTerminalService>();
 
         // Smart WAS calibration (statistical WAS zero analyzer)
         services.AddSingleton<ISmartWasCalibrationService, SmartWasCalibrationService>();
@@ -121,11 +114,6 @@ public static class ServiceCollectionExtensions
 
         // Audio service (cross-platform sound effects)
         services.AddSingleton<IAudioService, AgOpenWeb.Services.Audio.WebClientAudioService>();
-
-        // Battery service — per-platform reader (Windows P/Invoke, macOS pmset,
-        // Linux /sys/class/power_supply). Reports Unavailable on machines with
-        // no battery so the strip icon hides itself.
-        services.AddSingleton<IBatteryService, AgOpenWeb.Desktop.Services.DesktopBatteryService>();
 
         // Module communication service (work switch, steer switch logic)
         services.AddSingleton<IModuleCommunicationService, ModuleCommunicationService>();
@@ -179,24 +167,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISteerMachineLoopService>(_ => new SteerMachineLoopService(frequencyHz: 100.0));
         services.AddSingleton<IGpsPipelineService, GpsPipelineService>();
 
-        // No native map control in the web build — the browser/CanvasKit client renders the
-        // map. IMapService is satisfied by the no-op NullMapService (BackendHost registers this
-        // too; kept here so the container resolves standalone).
+        // The browser renders the map.
         services.AddSingleton<IMapService, NullMapService>();
 
         return services;
-    }
-
-    /// <summary>
-    /// Wire up services that need cross-references after the container is built.
-    /// Call this after building the service provider.
-    /// </summary>
-    public static void WireUpServices(this IServiceProvider serviceProvider)
-    {
-        // Wire AutoSteerService into UdpCommunicationService for zero-copy GPS processing
-        var udpService = serviceProvider.GetRequiredService<IUdpCommunicationService>() as UdpCommunicationService;
-        var autoSteerService = serviceProvider.GetRequiredService<IAutoSteerService>();
-
-        udpService?.SetAutoSteerService(autoSteerService);
     }
 }
