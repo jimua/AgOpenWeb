@@ -1,11 +1,7 @@
 <script lang="ts">
   import { _ } from 'svelte-i18n'
-  import { speedKph, isMetric, statusBar } from '../remote/session'
+  import { speedKph, statusBar } from '../remote/session'
 
-  let display = $derived(
-    $isMetric ? $speedKph : $speedKph / 1.60934,
-  )
-  let unit = $derived($isMetric ? $_('kph') : $_('mph'))
   let gpsOk = $derived(!!$statusBar?.gpsOk)
   let fixText = $derived($statusBar?.fixText || (gpsOk ? 'GPS OK' : 'NO GPS'))
 </script>
@@ -18,8 +14,8 @@
       <span class="gnss-label">GNSS</span>
     </div>
   </div>
-  <div class="value">{display.toFixed(1)}</div>
-  <div class="unit">{unit}</div>
+  <div class="value">{$speedKph.toFixed(1)}</div>
+  <div class="unit">{$_('kph')}</div>
 </div>
 
 <style>
