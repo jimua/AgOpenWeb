@@ -17,6 +17,7 @@
       "name": "SeederTerminal Desktop",
       "type": "coreclr",
       "request": "launch",
+      "preLaunchTask": "build SeederTerminal Desktop",
       "program": "${workspaceFolder}/SeederTerminal/SeederTerminal.Desktop/bin/Debug/net10.0/SeederTerminal.Desktop.exe",
       "cwd": "${workspaceFolder}/SeederTerminal/SeederTerminal.Desktop",
       "console": "internalConsole",
