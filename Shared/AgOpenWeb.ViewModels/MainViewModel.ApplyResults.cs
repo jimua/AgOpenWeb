@@ -306,10 +306,20 @@ public partial class MainViewModel
         if (result.ReplacementLocalPlane != null)
         {
             State.Field.LocalPlane = result.ReplacementLocalPlane;
+            // A temporary origin change puts the old grid in a different coordinate system.
+            // Rebuild it from the same cycle position the map and section control now use.
+            if (!IsFieldOpen && _coverageMapService.IsFieldBoundsSet)
+            {
+                _coverageMapService.ClearFieldBounds();
+                _coverageMapService.ClearAll();
+            }
             StatusMessage =
                 $"GPS source moved {result.ReplacementDistanceKm:F0} km " +
                 $"from local origin; origin re-anchored.";
         }
+
+        if (result.GpsValid)
+            EnsureCoverageBoundsInitialized(result.Easting, result.Northing);
 
         // Origin guard: live GPS far from the loaded field. Drop autosteer
         // and prompt the operator for a close/keep-driving decision.

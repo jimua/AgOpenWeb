@@ -1,5 +1,6 @@
 import { writable, derived, get } from 'svelte/store'
 import { createRemoteTransport } from './transport.js'
+import { createDisplayTextureReporter } from './displayTextureLimit'
 import type {
   Scene,
   Tick,
@@ -39,19 +40,29 @@ export const isMetric = derived(statusBar, ($s) => $s?.isMetric ?? true)
 
 let transport: ReturnType<typeof createRemoteTransport> | null = null
 let presenceTimer: ReturnType<typeof setInterval> | null = null
+const displayTexture = createDisplayTextureReporter(sendCommand)
+
+export function setDisplayTextureLimit(side: number) {
+  displayTexture.setLimit(side)
+}
 
 export function startRemote() {
   if (transport) return transport
+  let id: string | null = null
+  let control: { held: boolean; holderId: string } | null = null
+
+  function updateOperator() {
+    displayTexture.setOperator(!!id && !!control?.held && control.holderId === id)
+    if (id && control && !control.held) sendCommand('control.acquire|SeederTerminal')
+  }
+
   transport = createRemoteTransport({
     onScene: (s: Scene) => scene.set(s),
     onTick: (t: Tick) => {
       tick.set(t)
       pushTickPose(t)
     },
-    onCoverageInit: (init: CoverageInit) => {
-      setCoverageInit(init)
-      if (init.width > 4096 || init.height > 4096) transport?.send('display.capResolution|2.5')
-    },
+    onCoverageInit: (init: CoverageInit) => setCoverageInit(init),
     onCoverageCells: ({ cells }: { cells: Int32Array }) => queueCoverageCells(cells),
     onCoverageEdge: setCoverageEdges,
     onConfig: (c: Config) => config.set(c),
@@ -60,16 +71,27 @@ export function startRemote() {
     onAgShare: (a: AgShare) => agShare.set(a),
     onStatusBar: (s: StatusBar) => statusBar.set(s),
     onSeederTelemetry: (d: SeederTelemetryDto) => applyHostTelemetry(d),
-    onHello: (id: string) => clientId.set(id),
+    onHello: (value: string) => {
+      id = value
+      clientId.set(value)
+      updateOperator()
+    },
+    onControlState: (value: { held: boolean; holderId: string }) => {
+      control = value
+      updateOperator()
+    },
     onStatus: (s: string) => {
       connState.set(s)
       if (s === 'connected') {
-        transport?.send('control.acquire|SeederTerminal')
         if (!presenceTimer) {
           presenceTimer = setInterval(() => transport?.send('control.presence'), 500)
         }
-      } else if (presenceTimer) {
-        clearInterval(presenceTimer)
+      } else {
+        id = null
+        control = null
+        clientId.set(null)
+        displayTexture.disconnect()
+        if (presenceTimer) clearInterval(presenceTimer)
         presenceTimer = null
       }
     },
@@ -85,6 +107,7 @@ export function sendCommand(cmd: string) {
 export function stopRemote() {
   if (presenceTimer) clearInterval(presenceTimer)
   presenceTimer = null
+  displayTexture.disconnect()
   transport?.stop()
   transport = null
   clearPoseBuffer()

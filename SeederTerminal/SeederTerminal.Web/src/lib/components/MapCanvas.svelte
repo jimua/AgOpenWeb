@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { get } from 'svelte/store'
-  import { scene, tick, config } from '../remote/session'
+  import { scene, tick, config, setDisplayTextureLimit } from '../remote/session'
   import { pxPerM, followVehicle, northUp } from '../map/camera'
   import { createMapRenderer, loadCanvasKit, type MapRenderer } from '../map/renderer'
   import { noteFrame, resetFps } from '../stores/fps'
@@ -18,7 +18,7 @@
       try {
         const CK = await loadCanvasKit()
         if (!alive) return
-        renderer = createMapRenderer(canvas, CK)
+        renderer = createMapRenderer(canvas, CK, setDisplayTextureLimit)
         const resize = () => {
           renderer?.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1)
         }

@@ -23,7 +23,7 @@ public sealed class CoverageProjector
 
     public CoverageInitDto? BuildInit()
     {
-        if (_cov.DisplayDimensions is not { } dim || _cov.DisplayBoundsWorld is not { } bnd)
+        if (_cov.DisplayDimensions is not { Width: > 0, Height: > 0 } dim || _cov.DisplayBoundsWorld is not { } bnd)
             return null;
         return new CoverageInitDto(dim.CellSize, bnd.MinE, bnd.MinN, dim.Width, dim.Height);
     }

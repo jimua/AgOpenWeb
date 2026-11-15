@@ -4998,7 +4998,6 @@ public partial class MainViewModel : ObservableObject
         else
         {
             _coverageMapService.ClearFieldBounds();
-            _autoCoverageBoundsInitialized = false; // Allow auto-init from GPS position
         }
 
         // Sync to FieldState for section control boundary/headland detection

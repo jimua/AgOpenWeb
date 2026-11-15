@@ -15,9 +15,7 @@ export type CoverageBatch = {
 
 export type CoverageGrid = CoverageInit & {
   version: number
-  reanchor: boolean
-  offsetX: number
-  offsetY: number
+  generation: number
 }
 
 const RENDER_DELAY = 130
@@ -25,33 +23,36 @@ let grid: CoverageGrid | null = null
 let pending: CoverageBatch[] = []
 let edges: { e: number; n: number }[][] = []
 let version = 0
+let generation = 0
 let edgeVersion = 0
 
 export function setCoverageInit(init: CoverageInit): void {
+  if (init.width <= 0 || init.height <= 0 || init.cellSize <= 0) {
+    clearCoverageState()
+    return
+  }
   const old = grid
-  const sameSize = old && Math.abs(old.cellSize - init.cellSize) < 1e-9
-  if (old && !init.reset && sameSize && old.width === init.width && old.height === init.height &&
+  const reanchor = old && !init.reset && Math.abs(old.cellSize - init.cellSize) < 1e-9
+  if (reanchor && old.width === init.width && old.height === init.height &&
     Math.abs(old.originE - init.originE) <= 1e-9 && Math.abs(old.originN - init.originN) <= 1e-9) return
-  const reanchor = !!old && !init.reset && sameSize &&
-    (old.width !== init.width || old.height !== init.height ||
-      Math.abs(old.originE - init.originE) > 1e-9 || Math.abs(old.originN - init.originN) > 1e-9)
-  const offsetX = reanchor ? Math.round((old!.originE - init.originE) / init.cellSize) : 0
-  const offsetY = reanchor ? Math.round((old!.originN - init.originN) / init.cellSize) : 0
 
   if (reanchor) {
+    const offsetX = Math.round((old.originE - init.originE) / init.cellSize)
+    const offsetY = Math.round((old.originN - init.originN) / init.cellSize)
     for (const batch of pending) {
-      for (let i = 0; i + 2 < batch.cells.length; i += 3) {
+      for (let i = batch.off; i + 2 < batch.cells.length; i += 3) {
         batch.cells[i] += offsetX
         batch.cells[i + 1] += offsetY
       }
     }
   } else {
     pending = []
+    edges = []
+    edgeVersion++
+    generation++
   }
 
-  version++
-  grid = { ...init, version, reanchor: !!reanchor, offsetX, offsetY }
-  if (init.reset) edges = []
+  grid = { ...init, version: ++version, generation }
 }
 
 export function queueCoverageCells(cells: Int32Array): void {
@@ -73,5 +74,6 @@ export function clearCoverageState(): void {
   pending = []
   edges = []
   version++
+  generation++
   edgeVersion++
 }

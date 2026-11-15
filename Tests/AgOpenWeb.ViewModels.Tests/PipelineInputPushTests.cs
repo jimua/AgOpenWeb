@@ -43,6 +43,31 @@ public class PipelineInputPushTests
     }
 
     [Test]
+    public void ReplacementTemporaryPlane_ReinitializesCoverageAtResolvedGpsPosition()
+    {
+        var builder = new MainViewModelBuilder();
+        var vm = builder.Build();
+        var coverage = builder.CoverageMapService;
+        coverage.IsFieldBoundsSet.Returns(true, false);
+        coverage.ClearReceivedCalls();
+
+        vm.ApplyGpsCycleResult(new GpsCycleResult
+        {
+            GpsValid = true,
+            Easting = 0,
+            Northing = 0,
+            ReplacementLocalPlane = new LocalPlane(new Wgs84(43.7128, -74.006), new SharedFieldProperties()),
+        });
+
+        Received.InOrder(() =>
+        {
+            coverage.ClearFieldBounds();
+            coverage.ClearAll();
+            coverage.SetFieldBoundsFromPosition(0, 0, 250);
+        });
+    }
+
+    [Test]
     public void HeadlandToggle_ReachesThePipelineAndSectionControl()
     {
         var builder = new MainViewModelBuilder();

@@ -33,6 +33,7 @@ const SECTION_COLORS: [number, number, number, number][] = [
 ]
 
 const TILE_M = 50 // metres per ground-texture tile (native / AgOpenWeb)
+const MAX_COVERAGE_SIDE = 4096
 
 /** Same 1-2-5 step picker AgOpenWeb/native use for grid spacing. */
 function niceStep125(x: number): number {
@@ -118,9 +119,14 @@ export type MapRenderer = {
   dispose: () => void
 }
 
-export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): MapRenderer {
+export function createMapRenderer(
+  canvas: HTMLCanvasElement,
+  CK: CanvasKit,
+  onDisplayTextureLimit: (side: number) => void,
+): MapRenderer {
   let surface: any = null
   let grCtx: any = null
+  let coverageSide = 0
   let dpr = 1
   let vw = 1
   let vh = 1
@@ -178,6 +184,12 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
     if (!grCtx) {
       const handle = CK.GetWebGLContext(canvas)
       if (handle) grCtx = CK.MakeWebGLContext(handle)
+      const gl = grCtx && (canvas.getContext('webgl2') ?? canvas.getContext('webgl'))
+      if (gl) {
+        coverageSide = Math.min(MAX_COVERAGE_SIDE,
+          gl.getParameter(gl.MAX_TEXTURE_SIZE), gl.getParameter(gl.MAX_RENDERBUFFER_SIZE))
+        onDisplayTextureLimit(coverageSide)
+      }
     }
     if (grCtx) surface = CK.MakeOnScreenGLSurface(grCtx, canvas.width, canvas.height, null)
     if (!surface) surface = CK.MakeWebGLCanvasSurface(canvas)
@@ -287,7 +299,7 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
     const old = coverage
     const make = () => {
       let target: any = null
-      if (grCtx && init.width <= 4096 && init.height <= 4096) {
+      if (grCtx && init.width <= coverageSide && init.height <= coverageSide) {
         try {
           target = CK.MakeRenderTarget(grCtx, init.width, init.height)
           target?.getCanvas().clear(CK.TRANSPARENT)
@@ -304,11 +316,11 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
       return { init, target, paint, image: null, dirty: !!target }
     }
     coverage = make()
-    if (old && init.reanchor && old.target && coverage.target) {
+    if (old?.target && coverage.target && old.init.generation === init.generation) {
       old.target.flush()
       const image = old.target.makeImageSnapshot()
-      const dx = init.offsetX
-      const dy = init.offsetY
+      const dx = Math.round((old.init.originE - init.originE) / init.cellSize)
+      const dy = Math.round((old.init.originN - init.originN) / init.cellSize)
       coverage.target.getCanvas().drawImageOptions(image, dx, dy, CK.FilterMode.Nearest, CK.MipmapMode.None, null)
       image.delete()
       coverage.target.flush()
@@ -380,7 +392,11 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
 
   const drawCoverageEdge = (sk: any, scale: number) => {
     const state = getCoverageState()
-    if (!state.edges.length) return
+    if (!state.edges.length) {
+      safeDelete(coverageEdgePath?.path)
+      coverageEdgePath = null
+      return
+    }
     if (!coverageEdgePath || coverageEdgePath.version !== state.edgeVersion) {
       safeDelete(coverageEdgePath?.path)
       const cmds: number[] = []
@@ -705,12 +721,12 @@ export function createMapRenderer(canvas: HTMLCanvasElement, CK: CanvasKit): Map
     skTractor = null
     safeDelete(surface)
     surface = null
-    safeDelete(grCtx)
-    grCtx = null
     safeDelete(coverage?.image)
     safeDelete(coverage?.target)
     safeDelete(coverage?.paint)
     coverage = null
+    safeDelete(grCtx)
+    grCtx = null
     safeDelete(coverageEdgePath?.path)
     coverageEdgePath = null
     safeDelete(coverageEdgePaint)

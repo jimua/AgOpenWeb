@@ -181,9 +181,6 @@ public partial class MainViewModel
         double pivotHeading = hasPivot ? vehicle.Heading : data.CurrentPosition.Heading;
         double headingRad = pivotHeading * Math.PI / 180.0;
 
-        // Auto-initialize coverage bounds from GPS if no boundary exists (#138)
-        EnsureCoverageBoundsInitialized(posEasting, posNorthing);
-
         // ── User-action-driven recording (stays in ViewModel) ───────────
 
         // Add boundary point if recording is active
@@ -293,22 +290,14 @@ public partial class MainViewModel
         }
     }
 
-    private bool _autoCoverageBoundsInitialized;
-
     /// <summary>
     /// Auto-initialize coverage bounds from GPS position when no boundary exists.
     /// Creates a 500m x 500m area centered on current position. Only runs once per field session.
     /// </summary>
     private void EnsureCoverageBoundsInitialized(double easting, double northing)
     {
-        if (_coverageMapService.IsFieldBoundsSet || _autoCoverageBoundsInitialized)
+        if (_coverageMapService.IsFieldBoundsSet)
             return;
-
-        // Only auto-init if we have a valid position (not at origin)
-        if (Math.Abs(easting) < 0.1 && Math.Abs(northing) < 0.1)
-            return;
-
-        _autoCoverageBoundsInitialized = true;
 
         const double halfSize = 250.0; // 500m x 500m default area
         _coverageMapService.SetFieldBoundsFromPosition(easting, northing, halfSize);
