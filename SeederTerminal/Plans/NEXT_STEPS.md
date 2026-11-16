@@ -6,7 +6,7 @@ Spike succeeded:
 
 - Svelte Main on Vite `:5175` with CanvasKit map, pose interpolation, ground texture, grid, overlays, EN/UK
 - AgOpenWeb `RemoteServerHost` / `WebBackend` accept `port` + `uiContentRoot`
-- [`SeederTerminal.Desktop`](../SeederTerminal.Desktop/) hosts WebBackend on **5175** with the WebView and on **5174** in headless Vite development. Both stream backend-simulated seeder telemetry over WebSocket type 30.
+- [`SeederTerminal.Desktop`](../SeederTerminal.Desktop/) hosts WebBackend on **5175** with the WebView and on **5174** in headless Vite development. Both stream backend-simulated seeder telemetry over WebSocket type 240.
 - Android is contract-only ([`README.md`](../SeederTerminal.Android/README.md))
 
 Day-to-day spike still often uses **AgOpenWeb Desktop `:5174` + Vite proxy**. Product path is **one process**: Seeder Desktop serves `dist/` + `/ws` + vendor assets.
@@ -70,7 +70,7 @@ Stayed in `renderer.ts` + related stores; did not fork WireCodec.
 
 ### Phase D — Seeder telemetry path (Done)
 
-- Drive Seeder telemetry from **Core** (over a Seeder-owned WS extension type 30) so Desktop and future Android share one source
+- Drive Seeder telemetry from **Core** (over SeederTerminal WebSocket type 240) so Desktop and future Android share one source
 - SPA widgets subscribe to that feed and show unavailable readings when host telemetry is absent.
 
 ### Phase E — Android product head

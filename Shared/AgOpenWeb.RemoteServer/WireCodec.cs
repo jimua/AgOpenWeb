@@ -24,7 +24,10 @@ public static class WireCodec
         ControlState = 6, Hello = 7, Config = 8, Profiles = 9, Wizard = 10, NtripProfiles = 11,
         FieldOps = 12, AgShare = 13, AppInfo = 14, FieldTools = 15, RecordedPath = 16, Boundary = 17,
         Sound = 18, Pong = 19, CoverageEdge = 20, ViewPrefs = 21, Prompt = 22, Toast = 23, DrivePick = 24, HardwareMessage = 25,
-        Vt = 26, VtImage = 27, NtripMountpoints = 28, WebCards = 29, SeederTelemetry = 30;
+        Vt = 26, VtImage = 27, NtripMountpoints = 28, WebCards = 29;
+
+    // Message types 240–255 are reserved for SeederTerminal.
+    public const byte SeederTelemetry = 240;
 
     /// <summary>One-shot alert: tells the client to play sound effect
     /// <paramref name="effectId"/> (the <c>SoundEffect</c> enum value). Pushed
