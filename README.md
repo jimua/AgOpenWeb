@@ -1,88 +1,37 @@
-# AgOpenWeb
+# SeederTerminal
 
-[![CI](https://github.com/AgOpenGPS-Official/AgOpenWeb/actions/workflows/build-and-release.yml/badge.svg?branch=develop)](https://github.com/AgOpenGPS-Official/AgOpenWeb/actions/workflows/build-and-release.yml)
-[![Translation status](https://hosted.weblate.org/widget/agopengps/agopenweb/svg-badge.svg)](https://hosted.weblate.org/projects/agopengps/agopenweb/)
+SeederTerminal is an in-cab application for GPS guidance and monitoring seeding. The Desktop app runs the guidance backend and cockpit on the cab computer, so the core workflow works without internet access. Other devices on the cab LAN can open the same cockpit in a browser at `http://<cab-computer-ip>:5175/`.
 
-[![Beta build](https://img.shields.io/github/release-date-pre/AgOpenGPS-Official/AgOpenWeb?label=beta%20build&style=for-the-badge&color=brightgreen)](https://github.com/AgOpenGPS-Official/AgOpenWeb/releases/tag/beta)
+## What works today
 
-> **⬇️ Download the [Beta build](https://github.com/AgOpenGPS-Official/AgOpenWeb/releases/tag/beta). It is rebuilt from `develop` as fixes land and has all the latest fixes. Please install it, and check the problem still happens on it, before you open an issue.**
+- A CanvasKit map shows live vehicle position, guidance tracks, field boundaries, and worked-area coverage.
+- Portrait and landscape layouts show travel speed, target and actual seed rate, singulation, and per-section readings. The cockpit provides manual and master section controls.
+- The **Program** page switches between English and Ukrainian. **Vehicle** manages vehicle profiles and implement settings. **Field** lets operators create, open, and resume fields.
 
-Cross-platform agricultural GPS guidance — a rewrite of [AgOpenGPS](https://github.com/farmerbriantee/AgOpenGPS) using HTML/JS, .NET 10, and C#. The UI is a web page served up by the backend host and shown in each platform's own web view.
+Desktop currently generates simulated seed rate and singulation in the backend and streams those readings to the cockpit over WebSocket. Android tablets can use the cockpit through a browser on the cab LAN.
 
-## Download & run
+## Project origins
 
-Get the [**Beta**](../../releases/tag/beta) build. It is rebuilt from `develop` on demand and
-daily when there are changes, and it is the build to use and report issues against. Everything is a self-contained app (no .NET install needed). Pick the set that matches how you'll run it — in
-every mode the host also serves `http://<host>:5174` on the LAN, so cab phones/tablets connect
-in a browser.
+SeederTerminal builds on [AgOpenWeb](https://github.com/AgOpenGPS-Official/AgOpenWeb), a rewrite of [AgOpenGPS](https://github.com/farmerbriantee/AgOpenGPS). It reuses AgOpenWeb’s shared C# guidance backend and binary WebSocket protocol and adapts the CanvasKit map from its reference web client. The SeederTerminal cockpit has its own Svelte 5, TypeScript, and Vite frontend.
 
-**🖥️ Desktop** — a window with the guidance UI (host runs in-process):
+## Run SeederTerminal Desktop
 
-| OS | Download | Run |
-|---|---|---|
-| Windows x64 | `agopenweb-win-x64.zip` | run `AgOpenWeb.Desktop.exe` |
-| macOS (Apple silicon) | `agopenweb-macos-arm64.dmg` | drag to Applications, launch |
-| Linux x64 / arm64 | `agopenweb-launcher-linux-<arch>.tar.gz` | `./run.sh` |
-
-**🛰️ Headless** (Linux + Windows) — no window; UI in a browser at `http://<host>:5174`, auto-starts
-on boot (for an in-cab mini-PC / SBC):
-
-| OS | Download | Install |
-|---|---|---|
-| Linux x64 / arm64 | `agopenweb-linux-<arch>.tar.gz` | `sudo ./install.sh --from app` (systemd) |
-| Windows x64 | `agopenweb-win-x64.zip` | `install-service.cmd` → Run as administrator (Windows Service) |
-
-**📱 Mobile** — all-in-one (host + UI on the device):
-
-| Device | Download | Install |
-|---|---|---|
-| Android | `agopenweb-android.apk` | sideload |
-
-Each download's bundled `README` lists the prerequisites (e.g. the WebView2 Runtime on Windows,
-WebKitGTK on Linux).
-
-## Platforms
-
-- Windows x64
-- macOS x64 / ARM64
-- Linux x64 / ARM64
-- Android
-- iOS (sideload)
-
-## Tech stack
-
-- **UI:** HTML/JS web client with CanvasKit (Skia WebAssembly); shown in WebView2 / WKWebView / WebKitGTK on desktop (Photino.NET), WKWebView on iOS, WebView on Android
-- **Control brain:** `MainViewModel` with CommunityToolkit.Mvvm, driven by the web client
-- **Runtime:** .NET 10
-- **Architecture:** shared backend on every platform; the platform projects are thin web-view shells
-- **Testing:** NUnit, NSubstitute
-
-## Building from source
-
-Prerequisites: .NET 10 SDK
+Install the **.NET 10 SDK** and **Node.js 24 with npm**. From the repository root, run:
 
 ```bash
-# Desktop (Windows/macOS/Linux)
-dotnet build Platforms/AgOpenWeb.Desktop
-dotnet run --project Platforms/AgOpenWeb.Desktop
-
-# Android
-dotnet build Platforms/AgOpenWeb.Android
-
-# Run tests
-dotnet test
+cd SeederTerminal/SeederTerminal.Web
+npm ci
+cd ../..
+dotnet run --project SeederTerminal/SeederTerminal.Desktop/SeederTerminal.Desktop.csproj
 ```
 
-See [BUILD.md](BUILD.md) for platform-specific setup, and `deploy/{linux,windows,macos}/` for the
-packaging scripts that produce the release bundles above.
+The Desktop build bundles the web UI. The app serves it on port `5175` and opens it in a WebView.
 
-## Contributing
+See the [web development guide](SeederTerminal/SeederTerminal.Web/README.md) for Vite hot reload and GPS simulator setup. The headless Seeder backend and reference UI run on port `5174` in that workflow, with the SeederTerminal cockpit served by Vite on `5175`.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the architecture overview, feature list, and how to get
-started.
+## Documentation
 
-To help translate the UI, no code is needed: join in on [Weblate](https://hosted.weblate.org/projects/agopengps/agopenweb/). See [Docs/TRANSLATIONS.md](Docs/TRANSLATIONS.md).
-
-## License
-
-[Apache License 2.0](LICENSE.md)
+- [SeederTerminal architecture](SeederTerminal/Plans/ARCHITECTURE.md)
+- [AgOpenWeb backend architecture](Docs/ARCHITECTURE.md)
+- [Contributor guide](CONTRIBUTING.md)
+- [Apache License 2.0](LICENSE.md)
